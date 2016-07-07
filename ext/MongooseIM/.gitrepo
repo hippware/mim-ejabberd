@@ -1,0 +1,11 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/git-commands/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/esl/MongooseIM.git
+	branch = 2.0.0beta1
+	commit = 2392a08aaa2279e8e11a6fb534721f23eca848ce
+	parent = none
+	cmdver = 0.3.0
