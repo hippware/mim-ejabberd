@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/xmpp_router.erl

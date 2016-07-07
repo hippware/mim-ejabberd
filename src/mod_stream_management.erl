@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/mod_stream_management.erl

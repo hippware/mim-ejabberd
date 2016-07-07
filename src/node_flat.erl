@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/node_flat.erl

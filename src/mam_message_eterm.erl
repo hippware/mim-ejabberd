@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/mam_message_eterm.erl

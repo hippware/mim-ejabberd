@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/mam_jid_rfc.erl

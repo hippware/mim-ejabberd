@@ -1,0 +1,11 @@
+{application, ejabberd,
+ [{description, "ejabberd"},
+  {vsn, {cmd, "echo 2.1.8+mim-2.0.0beta1"}},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel, stdlib, inets, sasl, mnesia, ssl, runtime_tools,
+                  xmerl, lager, stringprep, exml, cowboy, exometer, fusco,
+                  p1_utils, cache_tab, pa, cuesport, base16, alarms, idna,
+                  setup, usec]},
+  {env, []},
+  {mod, {ejabberd_app, []}}]}.

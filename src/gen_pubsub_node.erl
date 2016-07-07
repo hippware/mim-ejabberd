@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/gen_pubsub_node.erl

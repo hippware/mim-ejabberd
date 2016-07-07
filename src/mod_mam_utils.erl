@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/mod_mam_utils.erl

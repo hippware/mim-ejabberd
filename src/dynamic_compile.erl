@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/dynamic_compile.erl

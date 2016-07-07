@@ -1,0 +1,10 @@
+.eunit
+.rebar
+ebin
+_build
+*.o
+*.beam
+*.plt
+erl_crash.dump
+src/ELDAPv3.*
+src/XmppAddr.*

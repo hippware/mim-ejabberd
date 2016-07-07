@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/mod_bosh_mnesia.erl

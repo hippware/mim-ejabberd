@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/bin_to_hex.erl

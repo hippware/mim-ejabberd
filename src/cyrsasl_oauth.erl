@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/cyrsasl_oauth.erl

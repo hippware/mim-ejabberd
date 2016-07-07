@@ -1,0 +1,1 @@
+ext/MongooseIM/apps/ejabberd/src/gen_iq_handler.erl
