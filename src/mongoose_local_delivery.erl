@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/mongoose_local_delivery.erl

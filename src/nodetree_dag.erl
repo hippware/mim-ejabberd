@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/nodetree_dag.erl

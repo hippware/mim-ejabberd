@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/mod_mam_riak_timed_arch_yz.erl

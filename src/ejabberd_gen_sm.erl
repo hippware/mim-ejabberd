@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/ejabberd_gen_sm.erl

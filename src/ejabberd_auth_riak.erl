@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/ejabberd_auth_riak.erl

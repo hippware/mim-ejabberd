@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/mam_jid.erl

@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/mod_private_riak.erl

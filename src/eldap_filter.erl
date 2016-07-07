@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/eldap_filter.erl

@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/mod_admin_extra_sessions.erl

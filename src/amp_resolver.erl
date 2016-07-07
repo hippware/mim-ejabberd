@@ -1,1 +1,0 @@
-ext/MongooseIM/apps/ejabberd/src/amp_resolver.erl
