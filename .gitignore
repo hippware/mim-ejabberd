@@ -5,6 +5,7 @@ _build
 *.o
 *.beam
 *.plt
+*.bak
 erl_crash.dump
 src/ELDAPv3.*
 src/XmppAddr.*
