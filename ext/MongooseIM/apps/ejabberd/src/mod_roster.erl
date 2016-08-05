@@ -464,20 +464,24 @@ process_item_els(Item, [{xmlcdata, _} | Els]) ->
     process_item_els(Item, Els);
 process_item_els(Item, []) -> Item.
 
-push_item(User, Server, From, Item) ->
+push_item(User, Server, From, OldItem = #roster{}, NewItem = #roster{}) ->
     ejabberd_sm:route(jid:make(<<"">>, <<"">>, <<"">>),
                       jid:make(User, Server, <<"">>),
-                      {broadcast, {item, Item#roster.jid, Item#roster.subscription}}),
+                      {broadcast, {item,
+                                   NewItem#roster.jid,
+                                   NewItem#roster.subscription,
+                                   OldItem, NewItem}}),
     case roster_versioning_enabled(Server) of
         true ->
-            push_item_version(Server, User, From, Item,
+            push_item_version(Server, User, From, NewItem,
                               roster_version(Server, jid:nodeprep(User)));
         false ->
             lists:foreach(fun (Resource) ->
-                                  push_item(User, Server, Resource, From, Item)
+                                  push_item(User, Server, Resource,
+                                            From, NewItem)
                           end,
                           ejabberd_sm:get_user_resources(User, Server))
-    end.
+    end;
 
 push_item(User, Server, Resource, From, Item) ->
     ejabberd_hooks:run(roster_push, Server, [From, Item]),
@@ -499,6 +503,20 @@ push_item(User, Server, Resource, From, Item, RosterVersion) ->
     ejabberd_router:route(From,
                           jid:make(User, Server, Resource),
                           jlib:iq_to_xml(ResIQ)).
+push_item(User, Server, From, Item) ->
+    ejabberd_sm:route(jid:make(<<"">>, <<"">>, <<"">>),
+                      jid:make(User, Server, <<"">>),
+                      {broadcast, {item, Item#roster.jid, Item#roster.subscription}}),
+    case roster_versioning_enabled(Server) of
+        true ->
+            push_item_version(Server, User, From, Item,
+                              roster_version(Server, jid:nodeprep(User)));
+        false ->
+            lists:foreach(fun (Resource) ->
+                                  push_item(User, Server, Resource, From, Item)
+                          end,
+                          ejabberd_sm:get_user_resources(User, Server))
+    end.
 
 push_item_version(Server, User, From, Item,
                   RosterVersion) ->
