@@ -352,9 +352,9 @@
                      }).
 
 -record(rsm_out, {count :: pos_integer(),
-                  index :: pos_integer(),
-                  first :: binary(),
-                  last :: binary()
+                  index :: pos_integer() | undefined,
+                  first :: binary() | undefined,
+                  last  :: binary() | undefined
                  }).
 
 -type iq() :: #iq{}.
