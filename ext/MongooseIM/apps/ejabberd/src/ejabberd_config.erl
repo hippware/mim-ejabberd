@@ -122,6 +122,7 @@
                     | {mongooseimctl_access_commands, list()}
                     | {loglevel, _}
                     | {max_fsm_queue, _}
+                    | {iq_crash_response, _}
                     | host_term().
 
 -type host_term() :: {acl, _, _}
@@ -574,6 +575,8 @@ process_term(Term, State) ->
             State;
         {max_fsm_queue, N} ->
             add_option(max_fsm_queue, N, State);
+        {iq_crash_response, Option} ->
+            add_option(iq_crash_response, Option, State);
         {_Opt, _Val} ->
             lists:foldl(fun(Host, S) -> process_host_term(Term, Host, S) end,
                         State, State#state.hosts)
