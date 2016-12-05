@@ -30,7 +30,7 @@
 -export([start/0,
          register_mechanism/3,
          listmech/1,
-         server_new/5,
+         server_new/7,
          server_start/3,
          server_step/2]).
 
@@ -53,34 +53,59 @@
 -record(sasl_state, {service :: binary(),
                      myname :: ejabberd:server(),
                      realm :: binary(),
+                     get_password :: get_password_fun(),
+                     check_password :: check_password_fun(),
+                     check_password_digest :: check_pass_digest_fun(),
                      mech_mod :: sasl_module(),
-                     mech_state :: tuple(),
-                     creds :: mongoose_credentials:t()
+                     mech_state :: tuple()
                      }).
 -type sasl_state() :: #sasl_state{}.
 
-% Either a simple error tag or an error tag + <text> field
--type error() :: {error, binary() | {binary(), binary()}}
-               | {error, binary() | {binary(), binary()}, ejabberd:user()}.
+-type get_password_fun() :: fun((ejabberd:user()) ->
+                          {binary(), ejabberd_auth:authmodule()} | {false, none}
+                        ).
+-type check_password_fun() :: fun((User :: ejabberd:user(),
+                                   Password :: binary()) ->
+                                      'false' | {'true', ejabberd_auth:authmodule()}
+                                 ).
+-type check_pass_digest_fun() :: fun((User :: ejabberd:user(),
+                                    Password :: binary(),
+                                    Digest :: binary(),
+                                    DigestGen :: fun()) ->
+                                      'false' | {'true', ejabberd_auth:authmodule()}
+                                  ).
 
--export_type([mechanism/0,
+% Either a simple error tag or an error tag + <text> field
+-type sasl_error_data() :: binary() | {binary(), binary()}.
+
+-export_type([get_password_fun/0,
+              check_password_fun/0,
+              check_pass_digest_fun/0,
+              mechanism/0,
               password_type/0,
-              error/0]).
+              sasl_error_data/0]).
 
 -callback mech_new(Host :: ejabberd:server(),
-                   Creds :: mongoose_credentials:t()) -> {ok, tuple()}.
-
+                   GetPassword :: get_password_fun(),
+                   CheckPassword :: check_password_fun(),
+                   CheckPasswordDigest :: check_pass_digest_fun()
+                   ) -> {ok, tuple()}.
 -callback mech_step(State :: tuple(),
-                    ClientIn :: binary()) -> {ok, mongoose_credentials:t()}
-                                           | cyrsasl:error().
+                    ClientIn :: binary()
+                    ) -> {ok, proplists:proplist()}
+                         | {error, sasl_error_data()}
+                         | {error, sasl_error_data(), ejabberd:user()}.
 
 -spec start() -> 'ok'.
 start() ->
     ets:new(sasl_mechanism, [named_table,
                              public,
                              {keypos, #sasl_mechanism.mechanism}]),
-    MechOpts = [],
-    [ Mech:start(MechOpts) || Mech <- get_mechanisms() ],
+    cyrsasl_plain:start([]),
+    cyrsasl_digest:start([]),
+    cyrsasl_scram:start([]),
+    cyrsasl_anonymous:start([]),
+    cyrsasl_oauth:start([]), %%todo: consider moving it somewhere else....
     ok.
 
 -spec register_mechanism(Mechanism :: mechanism(),
@@ -95,17 +120,15 @@ register_mechanism(Mechanism, Module, PasswordType) ->
 ets_insert_mechanism(MechanismRec) ->
     ets:insert(sasl_mechanism, MechanismRec).
 
--spec check_credentials(sasl_state(), mongoose_credentials:t()) -> R when
-      R :: {'ok', mongoose_credentials:t()}
-         | {'error', binary()}.
-check_credentials(_State, Creds) ->
-    case jid:nodeprep(mongoose_credentials:get(Creds, username, <<>>)) of
+-spec check_credentials(sasl_state(), list()) -> 'ok' | {'error', binary()}.
+check_credentials(_State, Props) ->
+    case jid:nodeprep(proplists:get_value(username, Props, <<>>)) of
         error ->
             {error, <<"not-authorized">>};
         <<>> ->
             {error, <<"not-authorized">>};
         _LUser ->
-            {ok, Creds}
+            ok
     end.
 
 -spec listmech(ejabberd:server()) -> [mechanism()].
@@ -132,12 +155,17 @@ listmech(Host) ->
                  ServerFQDN :: ejabberd:server(),
                  UserRealm :: binary(),
                  _SecFlags :: [any()],
-                 Creds :: mongoose_credentials:t()) -> sasl_state().
-server_new(Service, ServerFQDN, UserRealm, _SecFlags, Creds) ->
+                 GetPassword :: get_password_fun(),
+                 CheckPassword :: check_password_fun(),
+                 CheckPasswordDigest :: check_pass_digest_fun()) -> sasl_state().
+server_new(Service, ServerFQDN, UserRealm, _SecFlags,
+           GetPassword, CheckPassword, CheckPasswordDigest) ->
     #sasl_state{service = Service,
                 myname = ServerFQDN,
                 realm = UserRealm,
-                creds = Creds}.
+                get_password = GetPassword,
+                check_password = CheckPassword,
+                check_password_digest= CheckPasswordDigest}.
 
 -spec server_start(sasl_state(),
                  Mech :: mechanism(),
@@ -151,8 +179,11 @@ server_start(State, Mech, ClientIn) ->
         true ->
             case lookup_mech(Mech) of
                 [#sasl_mechanism{module = Module}] ->
-                    {ok, MechState} = Module:mech_new(State#sasl_state.myname,
-                                                      State#sasl_state.creds),
+                    {ok, MechState} = Module:mech_new(
+                                        State#sasl_state.myname,
+                                        State#sasl_state.get_password,
+                                        State#sasl_state.check_password,
+                                        State#sasl_state.check_password_digest),
                     server_step(State#sasl_state{mech_mod = Module,
                                                  mech_state = MechState},
                                 ClientIn);
@@ -172,20 +203,33 @@ lookup_mech(Mech) ->
                                           | {'ok', [any()]}
                                           | {'ok', [any()], term()}
                                           | {'continue', _, sasl_state()}
-                                          | error().
+                                          | {'error', sasl_error_data()}
+                                          | {'error', sasl_error_data(), ejabberd:user()}.
 server_step(State, ClientIn) ->
     Module = State#sasl_state.mech_mod,
     MechState = State#sasl_state.mech_state,
     case Module:mech_step(MechState, ClientIn) of
-        {ok, Creds} ->
-            check_credentials(State, Creds);
-        {continue, ServerOut, NewMechState} ->
-            {continue, ServerOut,
-             State#sasl_state{mech_state = NewMechState}};
-        {error, Error, Username} ->
-            {error, Error, Username};
-        {error, Error} ->
-            {error, Error}
+	{ok, Props} ->
+	    case check_credentials(State, Props) of
+		ok ->
+		    {ok, Props};
+		{error, Error} ->
+		    {error, Error}
+	    end;
+	{ok, Props, ServerOut} ->
+	    case check_credentials(State, Props) of
+		ok ->
+		    {ok, Props, ServerOut};
+		{error, Error} ->
+		    {error, Error}
+	    end;
+	{continue, ServerOut, NewMechState} ->
+	    {continue, ServerOut,
+	     State#sasl_state{mech_state = NewMechState}};
+	{error, Error, Username} ->
+	    {error, Error, Username};
+	{error, Error} ->
+	    {error, Error}
     end.
 
 %% @doc Remove the anonymous mechanism from the list if not enabled for the
@@ -196,11 +240,3 @@ filter_anonymous(Host, Mechs) ->
         true  -> Mechs;
         false -> Mechs -- [<<"ANONYMOUS">>]
     end.
-
-get_mechanisms() ->
-    Default = [cyrsasl_plain,
-               cyrsasl_digest,
-               cyrsasl_scram,
-               cyrsasl_anonymous,
-               cyrsasl_oauth],
-    ejabberd_config:get_local_option_or_default(sasl_mechanisms, Default).

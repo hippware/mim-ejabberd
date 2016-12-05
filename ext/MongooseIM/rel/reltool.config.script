@@ -33,7 +33,6 @@ BaseAppsToInclude = AppsToRun ++
                      cowlib,
                      bear,
                      mochijson2,
-                     jiffy,
                      cache_tab,
                      pa,
                      usec,
@@ -47,12 +46,8 @@ BaseAppsToInclude = AppsToRun ++
                      exometer_core
                      ],
 
-DevAppsToInclude = case os:getenv("DEVNODE") of
-                       false -> [];
-                       _ -> [meck]
-                   end.
 
-AppsToIncludeIn = BaseAppsToInclude ++ EnvAppsToInclude ++ DevAppsToInclude,
+AppsToIncludeIn = BaseAppsToInclude ++ EnvAppsToInclude,
 
 AppsToInclude = ordsets:to_list(ordsets:from_list(AppsToIncludeIn)),
 

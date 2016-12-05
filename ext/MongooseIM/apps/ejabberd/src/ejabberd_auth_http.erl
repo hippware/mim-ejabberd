@@ -13,7 +13,8 @@
 %% External exports
 -export([start/1,
          set_password/3,
-         authorize/1,
+         check_password/3,
+         check_password/5,
          try_register/3,
          dirty_get_registered_users/0,
          get_vh_registered_users/1,
@@ -27,10 +28,6 @@
          remove_user/3,
          store_type/1,
          stop/1]).
-
-%% Pre-mongoose_credentials API
--export([check_password/3,
-         check_password/5]).
 
 -include("ejabberd.hrl").
 
@@ -68,11 +65,6 @@ store_type(Server) ->
             end;
         true -> scram
     end.
-
--spec authorize(mongoose_credentials:t()) -> {ok, mongoose_credentials:t()}
-                                           | {error, any()}.
-authorize(Creds) ->
-    ejabberd_auth:authorize_with_check_password(?MODULE, Creds).
 
 -spec check_password(ejabberd:luser(), ejabberd:lserver(), binary()) -> boolean().
 check_password(LUser, LServer, Password) ->
@@ -152,7 +144,7 @@ get_vh_registered_users_number(_Server) ->
 get_vh_registered_users_number(_Server, _Opts) ->
     0.
 
--spec get_password(ejabberd:luser(), ejabberd:lserver()) -> ejabberd_auth:passwordlike() | false.
+-spec get_password(ejabberd:luser(), ejabberd:lserver()) -> false | binary() | scram:scram_tuple().
 get_password(LUser, LServer) ->
     case make_req(get, <<"get_password">>, LUser, LServer, <<"">>) of
         {error, _} ->

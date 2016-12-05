@@ -32,7 +32,8 @@
 -export([start/1,
          stop/1,
          set_password/3,
-         authorize/1,
+         check_password/3,
+         check_password/5,
          try_register/3,
          dirty_get_registered_users/0,
          get_vh_registered_users/1,
@@ -48,10 +49,6 @@
         ]).
 
 -export([scram_passwords/0]).
-
-%% Internal
--export([check_password/3,
-         check_password/5]).
 
 -include("ejabberd.hrl").
 
@@ -107,11 +104,6 @@ store_type(Server) ->
         false -> plain;
         true -> scram
     end.
-
--spec authorize(mongoose_credentials:t()) -> {ok, mongoose_credentials:t()}
-                                           | {error, any()}.
-authorize(Creds) ->
-    ejabberd_auth:authorize_with_check_password(?MODULE, Creds).
 
 -spec check_password(LUser :: ejabberd:luser(),
                      LServer :: ejabberd:lserver(),

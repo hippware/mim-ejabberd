@@ -21,7 +21,11 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("exml/include/exml.hrl").
 
--define(TEST_MECHANISM, <<"TEST-MECHANISM">>).
+% Ideally we'd use a custom mechanism here, but escalus
+% hardwires the allowed mechanisms in escalus_session.erl, so
+% we're stuck with testing using a mechanism that dosen't
+% get used by any other tests.
+-define(TEST_MECHANISM, <<"EXTERNAL">>).
 -define(TEXT_CONTENT, <<"Call 555-123-1234 for assistance">>).
 
 -behaviour(cyrsasl).
@@ -106,8 +110,8 @@ assert_has_text([_ | Tail]) ->
 %% cyrsasl test callback functions
 %%--------------------------------------------------------------------
 
-mech_new(_Host, _Creds) ->
-    {ok, state}.
+mech_new(_Host, _GetPassword, _CheckPassword, _CheckPasswordDigest) ->
+    {ok, {}}.
 
 mech_step(_State, _ClientIn) ->
     {error, {<<"not-authorized">>, ?TEXT_CONTENT}, <<>>}.

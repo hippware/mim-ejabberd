@@ -24,7 +24,8 @@
          stop/1,
          store_type/1,
          set_password/3,
-         authorize/1,
+         check_password/3,
+         check_password/5,
          try_register/3,
          dirty_get_registered_users/0,
          get_vh_registered_users/1,
@@ -39,10 +40,6 @@
         ]).
 
 -export([bucket_type/1]).
-
-%% Internal
--export([check_password/3,
-         check_password/5]).
 
 -spec start(ejabberd:lserver()) -> ok.
 start(_Host) ->
@@ -69,11 +66,6 @@ set_password(LUser, LServer, Password) ->
             User = mongoose_riak:fetch_type(bucket_type(LServer), LUser),
             do_set_password(User, LUser, LServer, Password)
     end.
-
--spec authorize(mongoose_credentials:t()) -> {ok, mongoose_credentials:t()}
-                                           | {error, any()}.
-authorize(Creds) ->
-    ejabberd_auth:authorize_with_check_password(?MODULE, Creds).
 
 -spec check_password(ejabberd:luser(), ejabberd:lserver(), binary()) -> boolean().
 check_password(LUser, LServer, Password) ->
@@ -141,7 +133,7 @@ get_vh_registered_users_number(LServer) ->
 get_vh_registered_users_number(LServer, _Opts) ->
     get_vh_registered_users_number(LServer).
 
--spec get_password(ejabberd:luser(), ejabberd:lserver()) -> ejabberd_auth:passwordlike() | false.
+-spec get_password(ejabberd:luser(), ejabberd:lserver()) -> binary() | false | scram:scram_tuple().
 get_password(LUser, LServer) ->
     case do_get_password(LUser, LServer) of
         false ->

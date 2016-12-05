@@ -29,7 +29,7 @@
 
 -export([start/1,
          stop/0,
-         mech_new/2,
+         mech_new/4,
          mech_step/2]).
 
 -include("ejabberd.hrl").
@@ -40,9 +40,10 @@
                 nonce,
                 username :: ejabberd:user(),
                 authzid,
+                get_password :: cyrsasl:get_password_fun(),
+                check_password :: cyrsasl:check_pass_digest_fun(),
                 auth_module :: ejabberd_auth:authmodule(),
-                host :: ejabberd:server(),
-                creds :: mongoose_credentials:t()
+                host :: ejabberd:server()
               }).
 
 start(_Opts) ->
@@ -52,16 +53,20 @@ stop() ->
     ok.
 
 -spec mech_new(Host :: ejabberd:server(),
-               Creds :: mongoose_credentials:t()) -> {ok, #state{}}.
-mech_new(Host, Creds) ->
+               GetPassword :: cyrsasl:get_password_fun(),
+               CheckPassword :: cyrsasl:check_password_fun(),
+               CheckPasswordDigest :: cyrsasl:check_pass_digest_fun()
+               ) -> {ok, #state{}}.
+mech_new(Host, GetPassword, _CheckPassword, CheckPasswordDigest) ->
     {ok, #state{step = 1,
                 nonce = randoms:get_string(),
                 host = Host,
-                creds = Creds}}.
+                get_password = GetPassword,
+                check_password = CheckPasswordDigest}}.
 
--spec mech_step(State :: tuple(), ClientIn :: any()) -> R when
-      R :: {ok, mongoose_credentials:t()}
-         | cyrsasl:error().
+-spec mech_step(State :: tuple(),
+                ClientIn :: any()
+                ) -> {ok, proplists:proplist()} | {error, binary()}.
 mech_step(#state{step = 1, nonce = Nonce} = State, _) ->
     {continue,
      list_to_binary("nonce=\"" ++ Nonce ++
@@ -81,21 +86,15 @@ mech_step(#state{step = 3, nonce = Nonce} = State, ClientIn) ->
                     {error, <<"not-authorized">>, UserName};
                 true ->
                     AuthzId = xml:get_attr_s(<<"authzid">>, KeyVals),
-                    LServer = mongoose_credentials:lserver(State#state.creds),
-                    case ejabberd_auth:get_password_with_authmodule(UserName, LServer) of
+                    case (State#state.get_password)(UserName) of
                         {false, _} ->
                             {error, <<"not-authorized">>, UserName};
                         {Passwd, AuthModule} ->
-                            DigestGen = fun(PW) -> response(KeyVals, UserName, PW, Nonce, AuthzId,
-                                                            <<"AUTHENTICATE">>)
-                                        end,
-                            Request = mongoose_credentials:extend(State#state.creds,
-                                                                  [{username, UserName},
-                                                                   {password, <<>>},
-                                                                   {digest, xml:get_attr_s(<<"response">>, KeyVals)},
-                                                                   {digest_gen, DigestGen}]),
-                            case ejabberd_auth:authorize(Request) of
-                                {ok, Result} ->
+                                case (State#state.check_password)(UserName, <<>>,
+                                        xml:get_attr_s(<<"response">>, KeyVals),
+                                        fun(PW) -> response(KeyVals, UserName, PW, Nonce, AuthzId,
+                                                <<"AUTHENTICATE">>) end) of
+                                {true, _} ->
                                     RspAuth = response(KeyVals,
                                                        UserName, Passwd,
                                                        Nonce, AuthzId, <<>>),
@@ -104,13 +103,9 @@ mech_step(#state{step = 3, nonce = Nonce} = State, ClientIn) ->
                                      State#state{step = 5,
                                                  auth_module = AuthModule,
                                                  username = UserName,
-                                                 authzid = AuthzId,
-                                                 creds = Result}};
-                                {error, not_authorized} ->
-                                    {error, <<"not-authorized">>, UserName};
-                                {error, R} ->
-                                    ?DEBUG("authorize error: ~p", [R]),
-                                    {error, <<"not-authorized">>}
+                                                 authzid = AuthzId}};
+                                false ->
+                                    {error, <<"not-authorized">>, UserName}
                             end
                     end
             end
@@ -118,11 +113,9 @@ mech_step(#state{step = 3, nonce = Nonce} = State, ClientIn) ->
 mech_step(#state{step = 5,
                  auth_module = AuthModule,
                  username = UserName,
-                 authzid = AuthzId,
-                 creds = Creds}, <<>>) ->
-    {ok, mongoose_credentials:extend(Creds, [{username, UserName},
-                                             {authzid, AuthzId},
-                                             {auth_module, AuthModule}])};
+                 authzid = AuthzId}, <<>>) ->
+    {ok, [{username, UserName}, {authzid, AuthzId},
+          {auth_module, AuthModule}]};
 mech_step(A, B) ->
     ?DEBUG("SASL DIGEST: A ~p B ~p", [A,B]),
     {error, <<"bad-protocol">>}.

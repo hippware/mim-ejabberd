@@ -1,3 +1,4 @@
+
 %%% File    : ejabberd_auth.erl
 %%% Author  : Alexey Shchepin <alexey@process-one.net>
 %%% Purpose : Authentification
@@ -30,7 +31,6 @@
 -export([start/0,
          start/1,
          stop/1,
-         authorize/1,
          set_password/3,
          check_password/3,
          check_password/5,
@@ -58,17 +58,11 @@
 
 -export([auth_modules/1]).
 
-%% Library functions for reuse in ejabberd_auth_* modules
--export([authorize_with_check_password/2]).
-
 -include("ejabberd.hrl").
 
--export_type([authmodule/0,
-              passwordlike/0]).
+-export_type([authmodule/0]).
 
 -type authmodule() :: module().
-%% TODO: TBH this name smells.
--type passwordlike() :: binary() | scram:scram_tuple().
 
 -define(METRIC(Host, Name), [backends, auth, Host, Name]).
 %%%----------------------------------------------------------------------
@@ -115,28 +109,6 @@ store_type(Server) ->
          (M, plain) ->
               M:store_type(Server)
       end, plain, auth_modules(Server)).
-
--spec authorize(mongoose_credentials:t()) -> {ok, mongoose_credentials:t()}
-                                           | {error, any()}.
-authorize(Creds) ->
-    LServer = mongoose_credentials:lserver(Creds),
-    timed_call(LServer, authorize, fun authorize_loop/2,
-               [auth_modules(LServer), Creds]).
-
--spec authorize_loop([AuthM], Creds) -> {ok, R}
-                                      | {error, any()} when
-      AuthM :: ejabberd_gen_auth:t(),
-      Creds :: mongoose_credentials:t(),
-      R     :: mongoose_credentials:t().
-authorize_loop([], Creds) -> {error, {no_auth_modules, Creds}};
-authorize_loop([M | Modules], Creds) ->
-    try
-        {ok, NewCreds} = M:authorize(Creds),
-        {ok, mongoose_credentials:register(NewCreds, M, success)}
-    catch
-        _:R -> authorize_loop(Modules,
-                              mongoose_credentials:register(Creds, M, {failure, R}))
-    end.
 
 %% @doc Check if the user and password can login in server.
 -spec check_password(User :: ejabberd:user(),
@@ -426,10 +398,10 @@ do_get_password_s(LUser, LServer) ->
                 Password
         end, <<"">>, auth_modules(LServer)).
 
-%% @doc Get the password(like thing) of the user and the auth module.
--spec get_password_with_authmodule(ejabberd:user(), ejabberd:server()) -> R when
-      R :: {passwordlike(), authmodule()}
-         | {'false', 'none'}.
+%% @doc Get the password of the user and the auth module.
+-spec get_password_with_authmodule(User :: ejabberd:user(),
+                                   Server :: ejabberd:server())
+      -> {Password::binary(), AuthModule :: authmodule()} | {'false', 'none'}.
 get_password_with_authmodule(User, Server) ->
     LUser = jid:nodeprep(User),
     LServer = jid:nameprep(Server),
@@ -617,26 +589,3 @@ timed_call(LServer, Metric, Fun, Args) ->
     mongoose_metrics:update(?METRIC(LServer, Metric), Time),
     Result.
 
-%% Library functions for reuse in ejabberd_auth_* modules
--spec authorize_with_check_password(Module, Creds) -> {ok, Creds}
-                                                    | {error, any()} when
-      Module :: authmodule(),
-      Creds :: mongoose_credentials:t().
-authorize_with_check_password(Module, Creds) ->
-    User      = mongoose_credentials:get(Creds, username),
-    LUser     = jid:nodeprep(User),
-    LUser == error andalso error({nodeprep_error, User}),
-    LServer   = mongoose_credentials:lserver(Creds),
-    Password  = mongoose_credentials:get(Creds, password),
-    Digest    = mongoose_credentials:get(Creds, digest, undefined),
-    DigestGen = mongoose_credentials:get(Creds, digest_gen, undefined),
-    Args = if
-               Digest /= undefined andalso DigestGen /= undefined ->
-                   [LUser, LServer, Password, Digest, DigestGen];
-               Digest == undefined orelse DigestGen == undefined ->
-                   [LUser, LServer, Password]
-           end,
-    case erlang:apply(Module, check_password, Args) of
-        true -> {ok, mongoose_credentials:set(Creds, auth_module, Module)};
-        false -> {error, not_authorized}
-    end.

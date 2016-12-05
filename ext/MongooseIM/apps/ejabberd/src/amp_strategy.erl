@@ -5,19 +5,18 @@
 %% @author <mongooseim@erlang-solutions.com>
 %% @copyright 2014 Erlang Solutions, Ltd.
 %% This work was sponsored by Grindr LLC
--export([determine_strategy/5,
+-export([determine_strategy/2,
          null_strategy/0]).
 
 -include_lib("ejabberd/include/amp.hrl").
 -include_lib("ejabberd/include/ejabberd.hrl").
 -include_lib("ejabberd/include/jlib.hrl").
 
--spec determine_strategy(amp_strategy(), jid() | undefined, jid() | undefined, #xmlel{}, amp_event()) ->
-                                amp_strategy().
-determine_strategy(_, _, undefined, _, _) -> null_strategy();
-determine_strategy(_, _, To, _, Event) ->
+-spec determine_strategy(amp_strategy(), jid() | undefined) -> amp_strategy().
+determine_strategy(_, undefined) -> null_strategy();
+determine_strategy(_, To) ->
     TargetResources = get_target_resources(To),
-    Deliver = deliver_strategy(TargetResources, Event),
+    Deliver = deliver_strategy(TargetResources),
     MatchResource = match_resource_strategy(TargetResources),
 
     #amp_strategy{deliver = Deliver,
@@ -39,15 +38,9 @@ get_target_resources(MessageTarget) ->
     UserResources = ejabberd_sm:get_user_resources(User, Server),
     {ResourceSession, UserResources}.
 
-deliver_strategy({offline, []}, initial_check) -> [none];
-deliver_strategy({_Session, _ }, initial_check) -> [direct, none];
-deliver_strategy({offline, []}, archived) -> [stored];
-deliver_strategy({_Session, _}, archived) -> [direct, stored];
-deliver_strategy(_, delivery_failed) -> [none];
-deliver_strategy({offline, []}, mam_failed) -> [none];
-deliver_strategy({_Session, _}, mam_failed) -> [direct, none];
-deliver_strategy(_, offline_failed) -> [none];
-deliver_strategy(_, delivered) -> [direct].
+deliver_strategy({offline, []})  -> 'none';
+deliver_strategy({offline, _ })  -> 'forward';
+deliver_strategy({_Session, _ }) -> 'direct'.
 
 %% @doc Notes on matching
 %%
@@ -58,5 +51,5 @@ deliver_strategy(_, delivered) -> [direct].
 %% in apps/ejabberd/test/amp_resolver_SUITE.erl
 %%
 match_resource_strategy({offline, []})            -> undefined;
-match_resource_strategy({offline, [_|_ManyRes]})  -> other;
-match_resource_strategy({_Session, [_|_ManyRes]}) -> exact.
+match_resource_strategy({offline, [_|_ManyRes]})  -> 'other';
+match_resource_strategy({_Session, [_|_ManyRes]}) -> 'exact'.

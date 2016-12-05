@@ -122,7 +122,7 @@
                     | {mongooseimctl_access_commands, list()}
                     | {loglevel, _}
                     | {max_fsm_queue, _}
-                    | {sasl_mechanisms, _}
+                    | {iq_crash_response, _}
                     | host_term().
 
 -type host_term() :: {acl, _, _}
@@ -268,8 +268,13 @@ normalize_hosts([Host|Hosts], PrepHosts) ->
             normalize_hosts(Hosts, [PrepHost|PrepHosts])
     end.
 
+-ifdef(latin1_characters).
+host_to_binary(Host) ->
+    list_to_binary(Host).
+-else.
 host_to_binary(Host) ->
     unicode:characters_to_binary(Host).
+-endif.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Errors reading the config file
@@ -570,8 +575,8 @@ process_term(Term, State) ->
             State;
         {max_fsm_queue, N} ->
             add_option(max_fsm_queue, N, State);
-        {sasl_mechanisms, Mechanisms} ->
-            add_option(sasl_mechanisms, Mechanisms, State);
+        {iq_crash_response, Option} ->
+            add_option(iq_crash_response, Option, State);
         {_Opt, _Val} ->
             lists:foldl(fun(Host, S) -> process_host_term(Term, Host, S) end,
                         State, State#state.hosts)

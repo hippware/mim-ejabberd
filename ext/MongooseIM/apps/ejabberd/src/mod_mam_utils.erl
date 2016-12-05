@@ -635,16 +635,16 @@ message_form(MamNs) ->
 
 message_form_fields(MamNs) ->
     [form_type_field(MamNs),
-     form_field(<<"jid-single">>, <<"with">>),
+     form_field(<<"jid-single">>,  <<"with">>),
      form_field(<<"text-single">>, <<"start">>),
-     form_field(<<"text-single">>, <<"end">>)].
+     form_field(<<"text-single">>, <<"end">>),
+     form_field(<<"boolean">>,     <<"reverse">>)].
 
 form_type_field(MamNs) when is_binary(MamNs) ->
     #xmlel{name = <<"field">>,
            attrs = [{<<"type">>, <<"hidden">>},
                     {<<"var">>, <<"FORM_TYPE">>}],
-           children = [#xmlel{name = <<"value">>,
-                              children = [#xmlcdata{content = MamNs}]}]}.
+           children = [#xmlcdata{content = MamNs}]}.
 
 form_field(Type, VarName) ->
     #xmlel{name = <<"field">>,

@@ -245,13 +245,8 @@
 
 
 init() ->
-    case ets:info(ejabberd_commands) of
-        undefined ->
-            ets:new(ejabberd_commands, [named_table, set, public,
-                                        {keypos, #ejabberd_commands.name}]);
-        _ ->
-            ok
-    end.
+    ets:new(ejabberd_commands, [named_table, set, public,
+                                {keypos, #ejabberd_commands.name}]).
 
 
 %% @doc Register ejabberd commands. If a command is already registered, a

@@ -18,8 +18,15 @@
                        Password :: binary()
                       ) -> ok | {error, not_allowed | invalid_jid}.
 
--callback authorize(mongoose_credentials:t()) -> {ok, mongoose_credentials:t()}
-                                               | {error, any()}.
+-callback check_password(User :: ejabberd:luser(),
+                         Server :: ejabberd:lserver(),
+                         Password :: binary()) -> boolean().
+
+-callback check_password(User :: ejabberd:luser(),
+                         Server :: ejabberd:lserver(),
+                         Password :: binary(),
+                         Digest :: binary(),
+                         DigestGen :: fun()) -> boolean().
 
 -callback try_register(User :: ejabberd:luser(),
                        Server :: ejabberd:lserver(),
@@ -38,7 +45,7 @@
 -callback get_vh_registered_users_number(Server :: ejabberd:lserver(), Opts :: list()) -> integer().
 
 -callback get_password(User :: ejabberd:luser(),
-                       Server :: ejabberd:lserver()) -> ejabberd_auth:passwordlike() | false.
+                       Server :: ejabberd:lserver()) -> scram:scram_tuple() | binary() | false.
 
 -callback get_password_s(User :: ejabberd:luser(),
                          Server :: ejabberd:lserver()) -> binary().
@@ -56,6 +63,3 @@
                       Password :: binary()
                       ) -> ok | {error, not_exists | not_allowed | bad_request}.
 
--export_type([t/0]).
-
--type t() :: module().
