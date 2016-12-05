@@ -89,9 +89,7 @@
 -define(NS_STREAMS,     <<"urn:ietf:params:xml:ns:xmpp-streams">>).
 
 -define(NS_TLS,        <<"urn:ietf:params:xml:ns:xmpp-tls">>).
--define(NS_TLS_BIN,         <<"urn:ietf:params:xml:ns:xmpp-tls">>).
 -define(NS_SASL,       <<"urn:ietf:params:xml:ns:xmpp-sasl">>).
--define(NS_SASL_BIN,        <<"urn:ietf:params:xml:ns:xmpp-sasl">>).
 -define(NS_SESSION,      <<"urn:ietf:params:xml:ns:xmpp-session">>).
 -define(NS_BIND,         <<"urn:ietf:params:xml:ns:xmpp-bind">>).
 
@@ -101,7 +99,6 @@
 -define(NS_FEATURE_MSGOFFLINE,<<"msgoffline">>).
 
 -define(NS_COMPRESS,     <<"http://jabber.org/protocol/compress">>).
--define(NS_COMPRESS_BIN, <<"http://jabber.org/protocol/compress">>).
 
 -define(NS_CAPS,         <<"http://jabber.org/protocol/caps">>).
 -define(NS_SHIM,         <<"http://jabber.org/protocol/shim">>).
@@ -342,8 +339,7 @@
                  direction   :: before | aft | undefined,
                 %% id is empty, if cdata does not exist
                  id          :: binary() | integer() | undefined,
-                 index       :: non_neg_integer() | undefined | error,
-                 reverse = false :: boolean()
+                 index       :: non_neg_integer() | undefined | error
                 }).
 
 -record(mam_borders, {after_id  :: non_neg_integer() | undefined,
@@ -353,9 +349,9 @@
                      }).
 
 -record(rsm_out, {count :: non_neg_integer(),
-                  index :: non_neg_integer() | undefined,
-                  first :: binary() | undefined,
-                  last  :: binary() | undefined
+                  index :: non_neg_integer(),
+                  first :: binary(),
+                  last :: binary()
                  }).
 
 -type iq() :: #iq{}.

@@ -355,8 +355,6 @@ check_packet(_, User, Server,
 
 check_packet_aux(_, message, <<"error">>, _JID, _Subscription, _Groups) ->
     allow;
-check_packet_aux(_, message_out, _Type, _JID, _Subscription, _Groups) ->
-    allow;
 check_packet_aux([], _PType, _Type, _JID, _Subscription, _Groups) ->
     allow;
 check_packet_aux([Item | List], PType, MType, JID, Subscription, Groups) ->
@@ -447,8 +445,7 @@ updated_list(_,
 
 packet_directed_type(Dir, Type) ->
     case {Type, Dir} of
-         {message, out} -> message_out;
-         {message, in} -> message;
+         {message, _} -> message;
          {iq, in} -> iq;
          {presence, in} -> presence_in;
          {presence, out} -> presence_out;
