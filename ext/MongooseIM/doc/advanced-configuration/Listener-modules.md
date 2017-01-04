@@ -1,6 +1,6 @@
 Some of MongooseIM modules are specialised in handling user connections. They can be used in the `listen` clause in `ejabberd.cfg` file. See this section for their description and configuration options.
 
-Options described with a value type (e.g. string, integer) are key-value tuples. 
+Options described with a value type (e.g. string, integer) are key-value tuples.
 Other options are enabled by being added as atoms. E.g. a tuple option might be: `{access, c2s}` while other options are added as: `starttls`.
 
 ## Client-to-server (C2S): `ejabberd_c2s`
@@ -33,18 +33,27 @@ Manages all HTTP-based services, such as BOSH (HTTP long-polling) and WebSocket.
 * `ip` (IP tuple, optional, default: `{0,0,0,0}`) - IP address to bind to.
 * `num_acceptors` (positive integer, optional, default: 100) - Number of acceptors.
 * `max_connections` (positive integer, optional, default: 1024) - Maximum total number of HTTP(S) connections.
-* `cert` (string, optional, no default value) - Path to the SSL certificate in X509 format.
-* `key` (string, optional, no default value) - Path to the SSL private key in X509 format.
-* `key_pass` (string, optional, default: `undefined`) - Password to a private key, `undefined` for no password.
+* `ssl` (list of ssl options, required for https, no default value) - If specified, https will be used. Accepts all ranch_ssl options that don't take fun() parameters. Only `certfile` and `keyfile` are mandatory. See [ranch_ssl documentation](https://github.com/ninenines/ranch/blob/master/doc/src/manual/ranch_ssl.asciidoc) for details. A minimal usage would be as follows:
+
+        {ssl, [
+            {certfile, "priv/ssl/fake_cert.pem"},
+            {keyfile, "priv/ssl/fake_key.pem"},
+        ]},
+
+    Here, `certfile` and `keyfile` specify the certificate and private key files respectively. If the keyfile is password-protected, one will need to specify the password with `{password, "secret"}`. If the certificate is signed by an intermediate CA, one will probably want to specify the CA chain with `cacertfile` option.
+
+    Note that `port`, `ip` and `max_connections` are taken from the listener config above and will be ignored if specified under `ssl`.
+
 * `modules` (list of tuples: `{Host, Path, Modules}`) - List of enabled HTTP-based modules. `"_"` equals any host.
     * `mod_bosh` - BOSH connections handler. Default declaration:
 
             `{"_", "/http-bind", mod_bosh}`
 
-    * `mod_websockets` - Websocket connections, both [old](http://xmpp.org/extensions/xep-0206.html) and [new](http://datatracker.ietf.org/doc/draft-ietf-xmpp-websocket/?include_text=1) type. You can pass optional
-    parameters:
+    * `mod_websockets` - Websocket connections as defined in  [RFC 7395](https://tools.ietf.org/html/rfc7395).
+    You can pass optional parameters:
         * `{timeout, Val}` - the time after which an inactive user is disconnected.
-        * `{ping_rate, Val}` - the Ping rate points to the time between pings sent by server. By declaring this field you enable server-side pinging.
+        * `{ping_rate, Val}` - the Ping rate points to the time between pings sent by server.
+	By declaring this field you enable server-side pinging.
         * `{ejabberd_service, Params}` - this enables external component
             connections over WebSockets. See [ejabberd_service](#ejabberd_service)
             section for more details how to configure it.
@@ -53,12 +62,17 @@ Manages all HTTP-based services, such as BOSH (HTTP long-polling) and WebSocket.
 
             `{"_", "/ws-xmpp", mod_websockets, []}`
 
-    * `mongoose_api` - REST API for accessing internal MongooseIM metrics.
+    * <i>(OBSOLETE)</i> `mongoose_api` - REST API for accessing internal MongooseIM metrics.
         Please refer to [REST interface to metrics](../developers-guide/REST-interface-to-metrics.md)
         for more information. Default declaration:
 
             `{"localhost", "/api", mongoose_api, [{handlers, [mongoose_api_metrics]}]}`
 
+  * `mongoose_api_admin` -  REST API for admin commands. Exposes all mongoose_commands
+    `mongoose_api_client` - REST API for client side commands. Exposes all mongoose_commands marked as "user"
+        Example declaration:
+
+            `{"localhost", "/api", mongoose_api_admin, []}`
 
 ### HTTP module: `mod_cowboy`
 
@@ -86,7 +100,7 @@ As for now, all WebSockets connections with the `Sec-WebSocket-Protocol: xmpp`
 header, will go through the mod_websockets connection.
 This is the MongooseIM's regular websocket connection handler.
 
-## Server-to-server (S2S): `ejabberd_s2s_in
+## Server-to-server (S2S): `ejabberd_s2s_in`
 
 Handles incoming server-to-server (S2S) connections (federation). Relies on `ejabberd_listener` and `ejabberd_receiver` just like `ejabberd_c2s`.
 

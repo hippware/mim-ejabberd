@@ -17,6 +17,27 @@
 %%% * rooms_per_page (10) - Maximal room count per result page in room disco
 %%% * rooms_in_rosters (false) - If enabled, rooms that user occupies will be included in
 %%%                              user's roster
+%%% * config_schema (["roomname", "subject"]) - Custom list of configuration options for a room;
+%%%                               WARNING! Lack of `roomname` field will cause room names in
+%%%                               Disco results and Roster items be set to room username.
+%%% * default_config ([{"roomname, "Untitled"}, {"subject", ""}]) -
+%%%                                Custom default room configuration; must be a subset of
+%%%                                config schema. It's a list of KV tuples with string keys
+%%%                                and values of appriopriate type. String values will be
+%%%                                converted to binary automatically.
+%%%        Example: [{"roomname", "The room"}, {"subject", "Chit-chat"}, {"security", 10}]
+%%%
+%%% Allowed `config_schema` list items (may be mixed):
+%%% * Just field name: "field" - will be expanded to "field" of type 'binary'
+%%% * Field name and type: {"field", integer}
+%%% * Field name, atom and the type: {"field", field, float} - useful only for debugging
+%%%                 or unusual applications
+%%% Sample valid list: `["roomname", {"subject", binary}, {"priority", priority, integer}]`
+%%%
+%%% Valid config field types:
+%%% * binary
+%%% * integer
+%%% * float
 %%%
 %%%----------------------------------------------------------------------
 
@@ -26,7 +47,8 @@
 -behaviour(gen_mod).
 
 %% API
--export([default_config/0]).
+-export([standard_config_schema/0, standard_default_config/0]).
+-export([config_schema/1, default_config/1]).
 -export([get_opt/3, set_opt/3]).
 
 %% gen_mod callbacks
@@ -46,6 +68,9 @@
          can_access_room/3,
          muc_room_pid/2]).
 
+%% For Administration API
+-export([try_to_create_room/3]).
+
 %% For propEr
 -export([apply_rsm/3]).
 
@@ -60,12 +85,17 @@
 %% API
 %%====================================================================
 
--spec default_config() -> config().
-default_config() ->
-    [
-     {roomname, <<"Untitled">>},
-     {subject, <<>>}
-    ].
+-spec standard_config_schema() -> [Field :: string()].
+standard_config_schema() -> ["roomname", "subject"].
+
+-spec standard_default_config() -> [{K :: string(), V :: string()}].
+standard_default_config() -> [{"roomname", "Untitled"}, {"subject", ""}].
+
+-spec default_config(MUCServer :: ejabberd:lserver()) -> config().
+default_config(MUCServer) -> get_opt(MUCServer, default_config, []).
+
+-spec config_schema(MUCServer :: ejabberd:lserver()) -> config_schema().
+config_schema(MUCServer) -> get_opt(MUCServer, config_schema, undefined).
 
 -spec get_opt(MUCServer :: ejabberd:lserver(), OptName :: atom(), Default :: any()) -> any().
 get_opt(MUCServer, OptName, Default) ->
@@ -125,6 +155,17 @@ start(Host, Opts) ->
               end,
     catch ets:new(?CONFIG_TAB, [set, public, named_table, {read_concurrency, true} | HeirOpt]),
     ets:insert(?CONFIG_TAB, {MyDomain, Opts}),
+
+    %% Prepare config schema
+    ConfigSchema = mod_muc_light_utils:make_config_schema(
+                     gen_mod:get_opt(config_schema, Opts, standard_config_schema())),
+    set_opt(MyDomain, config_schema, ConfigSchema),
+
+    %% Prepare default config
+    DefaultConfig = mod_muc_light_utils:make_default_config(
+                      gen_mod:get_opt(default_config, Opts, standard_default_config()),
+                      ConfigSchema),
+    set_opt(MyDomain, default_config, DefaultConfig),
 
     ok.
 
@@ -243,8 +284,11 @@ remove_user(User, Server) ->
     UserUS = {LUser, LServer},
     Version = mod_muc_light_utils:bin_ts(),
     case ?BACKEND:remove_user(UserUS, Version) of
-        {error, _} = Err -> ?ERROR_MSG("hook=remove_user,error=~p", [Err]);
-        AffectedRooms -> bcast_removed_user(UserUS, AffectedRooms, Version)
+        {error, _} = Err ->
+            ?ERROR_MSG("hook=remove_user,error=~p", [Err]);
+        AffectedRooms ->
+            bcast_removed_user(UserUS, AffectedRooms, Version),
+            maybe_forget_rooms(AffectedRooms)
     end.
 
 -spec add_rooms_to_roster(Acc :: [#roster{}], UserUS :: ejabberd:simple_bare_jid()) -> [#roster{}].
@@ -332,34 +376,51 @@ get_affiliation(Room, User) ->
             none
     end.
 
-
 -spec create_room(From :: ejabberd:jid(), FromUS :: ejabberd:simple_bare_jid(),
-                  To :: ejabberd:jid(), Create :: #create{}, OrigPacket :: jlib:xmlel()) -> ok.
-create_room(From, FromUS, To, #create{ raw_config = RawConfig } = Create0, OrigPacket) ->
-    {RoomU, _} = RoomUS = jid:to_lus(To), % might be service JID for room autogeneration
+                  To :: ejabberd:jid(), Create :: #create{}, OrigPacket :: jlib:xmlel()) ->
+    #xmlel{}.
+create_room(From, FromUS, To, Create0, OrigPacket) ->
+    case try_to_create_room(FromUS, To, Create0) of
+        {ok, FinalRoomUS, Details} ->
+            ?CODEC:encode({set, Details, To#jid.luser == <<>>}, From,
+                          FinalRoomUS, fun ejabberd_router:route/3);
+        {error, exists} ->
+            ?CODEC:encode_error({error, conflict}, From, To, OrigPacket,
+                                fun ejabberd_router:route/3);
+        {error, bad_request} ->
+            ?CODEC:encode_error({error, bad_request}, From, To, OrigPacket,
+                                fun ejabberd_router:route/3);
+        {error, Error} ->
+            ErrorText = io_lib:format("~s:~p", tuple_to_list(Error)),
+            ?CODEC:encode_error({error, bad_request, ErrorText}, From, To, OrigPacket,
+                                fun ejabberd_router:route/3)
+    end.
+
+-spec try_to_create_room(CreatorUS :: ejabberd:simple_bare_jid(), RoomJID :: ejabberd:jid(),
+                         CreationCfg :: #create{}) ->
+    {ok, ejabberd:simple_bare_jid(), #create{}}
+    | {error, validation_error() | bad_request | exists}.
+try_to_create_room(CreatorUS, RoomJID, #create{raw_config = RawConfig} = CreationCfg) ->
+    {_RoomU, RoomS} = RoomUS = jid:to_lus(RoomJID),
     InitialAffUsers = mod_muc_light_utils:filter_out_prevented(
-                        FromUS, RoomUS, Create0#create.aff_users),
-    MaxOccupants = get_opt(To#jid.lserver, max_occupants, ?DEFAULT_MAX_OCCUPANTS),
-    case {mod_muc_light_utils:process_raw_config(RawConfig, default_config()),
-          process_create_aff_users_if_valid(To#jid.lserver, FromUS, InitialAffUsers)} of
+                        CreatorUS, RoomUS, CreationCfg#create.aff_users),
+    MaxOccupants = get_opt(RoomJID#jid.lserver, max_occupants, ?DEFAULT_MAX_OCCUPANTS),
+    case {mod_muc_light_utils:process_raw_config(
+            RawConfig, default_config(RoomS), config_schema(RoomS)),
+          process_create_aff_users_if_valid(RoomS, CreatorUS, InitialAffUsers)} of
         {{ok, Config0}, {ok, FinalAffUsers}} when length(FinalAffUsers) =< MaxOccupants ->
             Version = mod_muc_light_utils:bin_ts(),
             case ?BACKEND:create_room(RoomUS, lists:sort(Config0), FinalAffUsers, Version) of
                 {ok, FinalRoomUS} ->
-                    Create = Create0#create{ version = Version, aff_users = FinalAffUsers },
-                    ?CODEC:encode({set, Create, RoomU == <<>>}, From,
-                                  FinalRoomUS, fun ejabberd_router:route/3);
-                {error, exists} ->
-                    ?CODEC:encode_error({error, conflict}, From, To, OrigPacket,
-                                                     fun ejabberd_router:route/3)
+                    {ok, FinalRoomUS, CreationCfg#create{
+                                        aff_users = FinalAffUsers, version = Version}};
+                Other ->
+                    Other
             end;
-        {{error, Error}, _} ->
-            ErrorText = io_lib:format("~s:~p", tuple_to_list(Error)),
-            ?CODEC:encode_error({error, bad_request, ErrorText}, From, To, OrigPacket,
-                                             fun ejabberd_router:route/3);
-        {_, _} ->
-            ?CODEC:encode_error({error, bad_request}, From, To, OrigPacket,
-                                             fun ejabberd_router:route/3)
+        {{error, _} = Error, _} ->
+            Error;
+        _ ->
+            {error, bad_request}
     end.
 
 -spec process_create_aff_users_if_valid(MUCServer :: ejabberd:lserver(),
@@ -420,8 +481,12 @@ handle_disco_items_get(From, To, DiscoItems0, OrigPacket) ->
 -spec get_rooms_info(Rooms :: [ejabberd:simple_bare_jid()]) -> [disco_room_info()].
 get_rooms_info([]) ->
     [];
-get_rooms_info([RoomUS | RRooms]) ->
-    {ok, RoomName, Version} = ?BACKEND:get_config(RoomUS, roomname),
+get_rooms_info([{RoomU, _} = RoomUS | RRooms]) ->
+    {ok, Config, Version} = ?BACKEND:get_config(RoomUS),
+    RoomName = case lists:keyfind(roomname, 1, Config) of
+                   false -> RoomU;
+                   {_, RoomName0} -> RoomName0
+               end,
     [{RoomUS, RoomName, Version} | get_rooms_info(RRooms)].
 
 -spec apply_rsm(RoomsInfo :: [disco_room_info()], RoomsInfoLen :: non_neg_integer(),
@@ -533,4 +598,11 @@ bcast_removed_user(UserJID,
 bcast_removed_user(UserJID, [{RoomUS, Error} | RAffected], Version, ID) ->
     ?ERROR_MSG("user=~p, room=~p, remove_user_error=~p", [UserJID, RoomUS, Error]),
     bcast_removed_user(UserJID, RAffected, Version, ID).
+
+-spec maybe_forget_rooms(AffectedRooms :: mod_muc_light_db:remove_user_return()) -> ok.
+maybe_forget_rooms([]) ->
+    ok;
+maybe_forget_rooms([{RoomUS, {ok, _, NewAffUsers, _, _}} | RAffectedRooms]) ->
+    mod_muc_light_room:maybe_forget(RoomUS, NewAffUsers),
+    maybe_forget_rooms(RAffectedRooms).
 

@@ -51,6 +51,7 @@ start(normal, _Args) ->
     ejabberd_node_id:start(),
     ejabberd_ctl:init(),
     ejabberd_commands:init(),
+    mongoose_commands:init(),
     gen_mod:start(),
     ejabberd_config:start(),
     ejabberd_check:config(),
@@ -59,6 +60,7 @@ start(normal, _Args) ->
     {ok, _} = Sup = ejabberd_sup:start_link(),
     ejabberd_rdbms:start(),
     mongoose_riak:start(),
+    mongoose_http_client:start(),
     ejabberd_auth:start(),
     cyrsasl:start(),
     %% Profiling
@@ -80,7 +82,6 @@ prep_stop(State) ->
     ejabberd_listener:stop_listeners(),
     stop_modules(),
     broadcast_c2s_shutdown(),
-    mod_websockets:stop(),
     timer:sleep(5000),
     mongoose_metrics:remove_all_metrics(),
     State.

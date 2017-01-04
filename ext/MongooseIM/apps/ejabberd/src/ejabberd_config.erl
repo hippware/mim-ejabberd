@@ -122,6 +122,7 @@
                     | {mongooseimctl_access_commands, list()}
                     | {loglevel, _}
                     | {max_fsm_queue, _}
+                    | {sasl_mechanisms, _}
                     | {iq_crash_response, _}
                     | host_term().
 
@@ -268,13 +269,8 @@ normalize_hosts([Host|Hosts], PrepHosts) ->
             normalize_hosts(Hosts, [PrepHost|PrepHosts])
     end.
 
--ifdef(latin1_characters).
-host_to_binary(Host) ->
-    list_to_binary(Host).
--else.
 host_to_binary(Host) ->
     unicode:characters_to_binary(Host).
--endif.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Errors reading the config file
@@ -575,6 +571,12 @@ process_term(Term, State) ->
             State;
         {max_fsm_queue, N} ->
             add_option(max_fsm_queue, N, State);
+        {sasl_mechanisms, Mechanisms} ->
+            add_option(sasl_mechanisms, Mechanisms, State);
+        {http_connections, HttpConnections} ->
+            add_option(http_connections, HttpConnections, State);
+        {all_metrics_are_global, Value} ->
+            add_option(all_metrics_are_global, Value, State);
         {iq_crash_response, Option} ->
             add_option(iq_crash_response, Option, State);
         {_Opt, _Val} ->
@@ -1005,7 +1007,7 @@ handle_config_change({_Key, _OldValue, _NewValue}) ->
 handle_local_config_add(#local_config{key = riak_server}) ->
     mongoose_riak:start();
 handle_local_config_add(#local_config{key=Key} = El) ->
-    case Key of
+    case can_be_ignored(Key) of
         true ->
             ok;
         false ->
@@ -1031,7 +1033,6 @@ handle_local_config_change({riak_server, _Old, _New}) ->
     mongoose_riak:stop(),
     mongoose_riak:start(),
     ok;
-
 handle_local_config_change({Key, _Old, _New} = El) ->
     case can_be_ignored(Key) of
         true ->
@@ -1157,7 +1158,7 @@ add_virtual_host(Host) ->
 
 -spec can_be_ignored(Key :: atom()) -> boolean().
 can_be_ignored(Key) when is_atom(Key) ->
-    L = [domain_certfile, s2s],
+    L = [domain_certfile, s2s, all_metrics_are_global],
     lists:member(Key,L).
 
 -spec remove_virtual_host(ejabberd:server()) -> any().
