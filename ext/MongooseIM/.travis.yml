@@ -16,7 +16,7 @@ install:
 before_script:
         - tools/travis-setup-db.sh
         - if [ $PRESET = 'ldap_mnesia' ]; then sudo tools/travis-setup-ldap.sh; fi
-script: tools/travis-test.sh $PRESET
+script: tools/travis-test.sh -p $PRESET
 
 after_failure:
         - cat `ls -1 -d -t apps/ejabberd/logs/ct_run* | head -1`/apps.ejabberd.logs/run.*/suite.log
@@ -28,7 +28,7 @@ after_failure:
 
 after_success:
         - make cover_report
-        - if [ $PRESET = 'internal_mnesia' ] && [ $TRAVIS_OTP_RELEASE = "17.5" ]; then tools/travis-build-and-push-docker.sh; fi
+        - if [ $PRESET = 'internal_mnesia' ] && [ $TRAVIS_OTP_RELEASE = "18.3" ]; then tools/travis-build-and-push-docker.sh; fi
 
 after_script:
         - sudo pip install awscli --ignore-installed six
@@ -43,25 +43,23 @@ branches:
                 - master
                 - stable
                 - /^rel\-\d+\.\d+$/
-                - /\d+\.\d+\.\d+(\-[a-z,0-9])*/
+                - /^\d+\.\d+\.\d+([a-z0-9\-\+])*/
 
 otp_release:
-        - 17.5
+        - 18.3
 env:
-        - PRESET=internal_redis DB=mnesia REL_CONFIG=with-redis
         - PRESET=internal_mnesia DB=mnesia REL_CONFIG=with-all
-        - PRESET=mysql_mnesia DB=mysql REL_CONFIG=with-mysql
+        - PRESET=mysql_redis DB=mysql REL_CONFIG="with-mysql with-redis"
         - PRESET=odbc_pgsql_mnesia DB=pgsql REL_CONFIG=with-odbc
-        - PRESET=pgsql_mnesia DB=pgsql REL_CONFIG=with-pgsql
         - PRESET=ldap_mnesia DB=mnesia REL_CONFIG=with-none
         - PRESET=riak_mnesia DB=riak REL_CONFIG=with-riak
         - PRESET=dialyzer_only
 
 matrix:
     include:
-        - otp_release: R16B03
-          env: PRESET=internal_mnesia DB=mnesia REL_CONFIG=with-none
-        - otp_release: 18.1
+        - otp_release: 19.0
+          env: PRESET=pgsql_mnesia DB=pgsql REL_CONFIG=with-pgsql
+        - otp_release: 17.5
           env: PRESET=internal_mnesia DB=mnesia REL_CONFIG=with-none
 
 notifications:
@@ -83,5 +81,5 @@ deploy:
   file: mongooseim-$TRAVIS_BRANCH.OTP-$TRAVIS_OTP_RELEASE.$(lsb_release -is | tr "A-Z" "a-z").$(lsb_release -rs).$(uname -m).tar.bz2
   on:
     tags: true
-    condition: "$PRESET.$TRAVIS_OTP_RELEASE = internal_mnesia.17.5"
+    condition: "$PRESET.$TRAVIS_OTP_RELEASE = internal_mnesia.18.3"
 

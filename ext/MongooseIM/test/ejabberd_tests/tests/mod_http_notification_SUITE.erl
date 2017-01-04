@@ -19,50 +19,86 @@
 %%%===================================================================
 
 all() ->
-    [{group, mod_http_notification_tests}].
+    [
+        {group, mod_http_notification_tests},
+        {group, mod_http_notification_tests_with_prefix}
+        ].
 
 all_tests() ->
     [simple_message, simple_message_no_listener, simple_message_failing_listener].
 
 groups() ->
-    [{mod_http_notification_tests, [sequence], all_tests()}].
+    [{mod_http_notification_tests, [sequence], all_tests()},
+    {mod_http_notification_tests_with_prefix, [sequence], all_tests()}].
 
 
 suite() ->
     escalus:suite().
 
-set_worker_timeout() ->
-    dynamic_modules:start(host(), mod_http_notification, [{worker_timeout, 500}, {host, "http://localhost:8000"}]),
+set_worker() ->
+    set_modules([{worker_timeout, 500}, {host, "http://localhost:8000"}]),
+    ok.
+
+set_worker(Prefix) ->
+    set_modules([{worker_timeout, 500}, {host, "http://localhost:8000"}, {path, Prefix}]),
+    ok.
+
+set_modules(Opts) ->
+    ejabberd_node_utils:call_fun(mongoose_http_client, start, [[]]),
+    ejabberd_node_utils:call_fun(mongoose_http_client,
+        start_pool,
+        [http_pool, [{server, "http://localhost:8000"}]]),
+    dynamic_modules:start(host(), mod_http_notification, Opts),
     ok.
 
 host() -> <<"localhost">>.
 
 init_per_suite(Config0) ->
     Config1 = escalus:init_per_suite(Config0),
-    set_worker_timeout(),
-    escalus:create_users(Config1, escalus:get_users({by_name, [alice, bob]})).
+    escalus:create_users(Config1, escalus:get_users([alice, bob])).
 
 end_per_suite(Config) ->
-    dynamic_modules:stop(host(), mod_http_notification),
-    escalus:delete_users(Config, {by_name, [alice, bob]}),
+    escalus:delete_users(Config, [alice, bob]),
     escalus:end_per_suite(Config).
 
-init_per_group(_GroupName, Config) ->
+init_per_group(mod_http_notification_tests, Config) ->
+    set_worker(),
+    Config;
+init_per_group(mod_http_notification_tests_with_prefix, Config) ->
+    set_worker("/prefix"),
     Config.
 
-end_per_group(_GroupName, _Config) ->
+end_per_group(_GroupName, Config) ->
+    dynamic_modules:stop(host(), mod_http_notification),
+    ejabberd_node_utils:call_fun(mongoose_http_client, stop_pool, [http_pool]),
+    ejabberd_node_utils:call_fun(mongoose_http_client, stop, []),
     ok.
 
 init_per_testcase(CaseName, Config) ->
+    start_http_listener(CaseName, get_prefix(Config)),
     escalus:init_per_testcase(CaseName, Config).
 
 end_per_testcase(CaseName, Config) ->
+    http_helper:stop(),
     escalus:end_per_testcase(CaseName, Config).
 
 start_mod_http_notification(Opts) ->
     Domain = ct:get_config(ejabberd_domain),
     dynamic_modules:start(Domain, mod_http_notification, Opts).
 
+start_http_listener(simple_message, Prefix) ->
+    Pid = self(),
+    http_helper:start(8000, Prefix, fun(Req) -> process_notification(Req, Pid) end);
+start_http_listener(simple_message_no_listener, _) ->
+    ok;
+start_http_listener(simple_message_failing_listener, Prefix) ->
+    http_helper:start(8000, Prefix, fun(Req) -> Req end).
+
+process_notification(Req, Pid) ->
+    {ok, Body, Req1} = cowboy_req:body(Req),
+    {ok, Req2} = cowboy_req:reply(200, [{<<"content-type">>, <<"text/plain">>}], <<"OK">>, Req1),
+    Pid ! {got_http_request, Body},
+    Req2.
 
 %%%===================================================================
 %%% offline tests
@@ -70,28 +106,29 @@ start_mod_http_notification(Opts) ->
 
 simple_message(Config) ->
     %% we expect one notification message
-    http_helper:listen_once(self(), 8000, [<<"alice">>, <<"Simple">>]),
     do_simple_message(Config, <<"Hi, Simple!">>),
     %% fail if we didn't receive http notification
-    Notified = receive
-                   {ok, got_http_request, _} ->
-                       true
-               after 2000 ->
-                       false
-               end,
-    assert_true("notified", Notified).
+    Body = receive
+               {got_http_request, Bin} -> Bin
+           after 2000 ->
+                   error(missing_request)
+           end,
+    ct:pal("Got request ~p~n", [Body]),
+    {_, _} = binary:match(Body, <<"alice">>),
+    {_, _} = binary:match(Body, <<"Simple">>).
 
 simple_message_no_listener(Config) ->
     do_simple_message(Config, <<"Hi, NoListener!">>).
 
 simple_message_failing_listener(Config) ->
-    http_helper:listen_once(self(), 8000, none, none),
     do_simple_message(Config, <<"Hi, Failing!">>).
 
 do_simple_message(Config, Msg) ->
+    BobJid = escalus_users:get_jid(Config, bob),
+
     %% Alice sends a message to Bob, who is offline
     escalus:story(Config, [{alice, 1}],
-        fun(Alice) -> escalus:send(Alice, escalus_stanza:chat_to(bob, Msg)) end),
+        fun(Alice) -> escalus:send(Alice, escalus_stanza:chat_to(BobJid, Msg)) end),
 
     %% Bob logs in
     Bob = login_send_presence(Config, bob),
@@ -120,8 +157,11 @@ login_send_presence(Config, User) ->
     escalus:send(Client, escalus_stanza:presence(<<"available">>)),
     Client.
 
+get_prefix(mod_http_notification_tests) ->
+    "/";
+get_prefix(mod_http_notification_tests_with_prefix) ->
+    "/prefix";
+get_prefix(Config) ->
+    GroupName = proplists:get_value(name, proplists:get_value(tc_group_properties, Config)),
+    get_prefix(GroupName).
 
-assert_true(_, true) ->
-    ok;
-assert_true(Name, _) ->
-    ct:fail("~p is not true, while should be", [Name]).

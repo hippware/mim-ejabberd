@@ -22,9 +22,24 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("exml/include/exml.hrl").
 
+-import(muc_helper,
+        [load_muc/1,
+         unload_muc/0,
+         muc_host/0,
+         start_room/5,
+         create_instant_room/5,
+         generate_rpc_jid/1,
+         destroy_room/1,
+         destroy_room/2,
+         stanza_muc_enter_room/2,
+         stanza_to_room/2,
+         stanza_to_room/3,
+         room_address/1,
+         room_address/2]).
+
 -define(MUC_HOST, <<"muc.localhost">>).
 -define(MUC_CLIENT_HOST, <<"localhost/res1">>).
--define(PASSWORD, <<"password">>).
+-define(PASSWORD, <<"pa5sw0rd">>).
 -define(SUBJECT, <<"subject">>).
 -define(WAIT_TIME, 1500).
 
@@ -65,7 +80,9 @@ all() -> [
         {group, occupant},
         {group, owner},
         {group, owner_no_parallel},
-        {group, room_management}
+        {group, room_management},
+        {group, http_auth_no_server},
+        {group, http_auth}
         ].
 
 groups() -> [
@@ -194,6 +211,18 @@ groups() -> [
         {room_management, [], [
                 create_and_destroy_room,
                 create_and_destroy_room_multiple_x_elements
+                ]},
+        {http_auth_no_server, [parallel], [
+                deny_access_to_http_password_protected_room_service_unavailable,
+                deny_creation_of_http_password_protected_room_service_unavailable
+                ]},
+        {http_auth, [parallel], [
+                enter_http_password_protected_room,
+                deny_access_to_password_protected_room,
+                deny_access_to_http_password_protected_room_wrong_password,
+                create_instant_http_password_protected_room,
+                deny_creation_of_http_password_protected_room,
+                deny_creation_of_http_password_protected_room_wrong_password
                 ]}
         ].
 
@@ -213,12 +242,12 @@ suite() ->
 
 
 init_per_suite(Config) ->
-    muc_helper:load_muc(?MUC_HOST),
+    load_muc(muc_host()),
     escalus:init_per_suite(Config).
 
 end_per_suite(Config) ->
     escalus_fresh:clean(),
-    muc_helper:unload_muc(),
+    unload_muc(),
     escalus:end_per_suite(Config).
 
 init_per_group(moderator, Config) ->
@@ -246,8 +275,44 @@ init_per_group(disco_rsm, Config) ->
     [Alice | _] = ?config(escalus_users, Config1),
     start_rsm_rooms(Config1, Alice, <<"aliceonchat">>);
 
+init_per_group(G, Config) when G =:= http_auth_no_server;
+                               G =:= http_auth ->
+    ejabberd_node_utils:call_fun(mongoose_http_client, start, [[]]),
+    ok = ejabberd_node_utils:call_fun(mongoose_http_client, start_pool, [muc_http_auth_test,
+                                                                         [{server, "http://localhost:8080"},
+                                                                          {path_prefix, "/muc/auth/"},
+                                                                          {pool_size, 5}]]),
+    case G of
+        http_auth -> http_helper:start(8080, "/muc/auth/check_password", fun handle_http_auth/1);
+        _ -> ok
+    end,
+    ConfigWithModules = dynamic_modules:save_modules(domain(), Config),
+    dynamic_modules:ensure_modules(domain(), required_modules(http_auth)),
+    ConfigWithModules;
+
 init_per_group(_GroupName, Config) ->
     escalus:create_users(Config, escalus:get_users([alice, bob, kate])).
+
+required_modules(http_auth) ->
+    [{mod_muc, [
+                {host, "muc.@HOST@"},
+                {access, muc},
+                {access_create, muc_create},
+                {http_auth_pool, muc_http_auth_test},
+                {default_room_options, [{password_protected, true}]}
+               ]}
+    ].
+
+handle_http_auth(Req) ->
+    {Pass, Req1} = cowboy_req:qs_val(<<"pass">>, Req),
+    {Code, Msg} = case Pass of
+                      ?PASSWORD -> {0, <<"OK">>};
+                      _ -> {121, <<"Password expired">>}
+                  end,
+    Resp = jiffy:encode(#{code => Code, msg => Msg}),
+    Headers = [{<<"content-type">>, <<"application/json">>}],
+    {ok, Req2} = cowboy_req:reply(200, Headers, Resp, Req1),
+    Req2.
 
 end_per_group(admin_membersonly, Config) ->
     destroy_room(Config),
@@ -261,8 +326,20 @@ end_per_group(disco_rsm, Config) ->
     destroy_rsm_rooms(Config),
     escalus:delete_users(Config, escalus:get_users([alice, bob]));
 
+end_per_group(G, Config) when G =:= http_auth_no_server;
+                              G =:= http_auth ->
+    case G of
+        http_auth -> http_helper:stop();
+        _ -> ok
+    end,
+    ejabberd_node_utils:call_fun(mongoose_http_client, stop_pool, [muc_http_auth_test]),
+    dynamic_modules:restore_modules(domain(), Config);
+
 end_per_group(_GroupName, Config) ->
     escalus:delete_users(Config, escalus:get_users([alice, bob, kate])).
+
+domain() ->
+    ct:get_config({hosts, mim, domain}).
 
 init_per_testcase(CaseName =send_non_anonymous_history, Config) ->
     [Alice | _] = ?config(escalus_users, Config),
@@ -2581,7 +2658,7 @@ disco_service(Config) ->
         Server = escalus_client:server(Alice),
         escalus:send(Alice, escalus_stanza:service_discovery(Server)),
         Stanza = escalus:wait_for_stanza(Alice),
-        escalus:assert(has_service, [?MUC_HOST], Stanza),
+        escalus:assert(has_service, [muc_host()], Stanza),
         escalus:assert(is_stanza_from, [escalus_config:get_config(ejabberd_domain, Config)], Stanza)
     end).
 
@@ -2590,7 +2667,7 @@ disco_features(Config) ->
         escalus:send(Alice, stanza_get_features()),
         Stanza = escalus:wait_for_stanza(Alice),
         has_features(Stanza),
-        escalus:assert(is_stanza_from, [?MUC_HOST], Stanza)
+        escalus:assert(is_stanza_from, [muc_host()], Stanza)
     end).
 
 disco_rooms(Config) ->
@@ -2599,7 +2676,7 @@ disco_rooms(Config) ->
         %% we should have room room_address(<<"aliceroom">>), created in init
         Stanza = escalus:wait_for_stanza(Alice),
         has_room(room_address(<<"alicesroom">>), Stanza),
-        escalus:assert(is_stanza_from, [?MUC_HOST], Stanza)
+        escalus:assert(is_stanza_from, [muc_host()], Stanza)
     end).
 
 disco_info(Config) ->
@@ -3603,6 +3680,107 @@ pagination_after10(Config) ->
         end,
     escalus:fresh_story(Config, [{alice, 1}], F).
 
+%%--------------------------------------------------------------------
+%% Password protection with HTTP external authentication
+%%--------------------------------------------------------------------
+
+deny_access_to_http_password_protected_room_wrong_password(Config1) ->
+    AliceSpec = given_fresh_spec(Config1, alice),
+    Config = given_fresh_room(Config1, AliceSpec, [{password_protected, true}]),
+    escalus:fresh_story(Config, [{bob, 1}], fun(Bob) ->
+        escalus:send(Bob, stanza_muc_enter_password_protected_room(?config(room, Config), escalus_utils:get_username(Bob), <<"badpass">>)),
+        escalus_assert:is_error(escalus:wait_for_stanza(Bob), <<"auth">>, <<"not-authorized">>)
+    end),
+    destroy_room(Config).
+
+deny_access_to_http_password_protected_room_service_unavailable(Config1) ->
+    AliceSpec = given_fresh_spec(Config1, alice),
+    Config = given_fresh_room(Config1, AliceSpec, [{password_protected, true}]),
+    escalus:fresh_story(Config, [{bob, 1}], fun(Bob) ->
+        escalus:send(Bob, stanza_muc_enter_password_protected_room(?config(room, Config), escalus_utils:get_username(Bob), ?PASSWORD)),
+        escalus_assert:is_error(escalus:wait_for_stanza(Bob), <<"cancel">>, <<"service-unavailable">>)
+    end),
+    destroy_room(Config).
+
+enter_http_password_protected_room(Config1) ->
+    AliceSpec = given_fresh_spec(Config1, alice),
+    Config = given_fresh_room(Config1, AliceSpec, [{password_protected, true}]),
+    escalus:fresh_story(Config, [{bob, 1}], fun(Bob) ->
+        Room = ?config(room, Config),
+        Username = escalus_utils:get_username(Bob),
+        Stanza = stanza_muc_enter_password_protected_room(Room, Username,
+                                                          ?PASSWORD),
+        escalus:send(Bob, Stanza),
+        Presence = escalus:wait_for_stanza(Bob),
+        is_self_presence(Bob, ?config(room, Config), Presence)
+    end),
+    destroy_room(Config).
+
+create_instant_http_password_protected_room(Config) ->
+    escalus:fresh_story(Config, [{alice, 1}, {bob, 1}], fun(Alice, Bob) ->
+
+        %% Create the room (should be locked on creation)
+        RoomName = fresh_room_name(),
+        Presence = stanza_muc_enter_password_protected_room(RoomName, <<"alice-the-owner">>, ?PASSWORD),
+        escalus:send(Alice, Presence),
+        was_room_created(escalus:wait_for_stanza(Alice)),
+
+        escalus:wait_for_stanza(Alice), % topic
+
+        R = escalus_stanza:setattr(stanza_instant_room(<<RoomName/binary,"@muc.localhost">>),
+                                   <<"from">>, escalus_utils:get_jid(Alice)),
+        escalus:send(Alice, R),
+        IQ = escalus:wait_for_stanza(Alice),
+        escalus:assert(is_iq_result, IQ),
+
+        %% Bob should be able to join the room
+        escalus:send(Bob, stanza_muc_enter_password_protected_room(RoomName, <<"bob">>, ?PASSWORD)),
+        escalus:wait_for_stanza(Alice), %Bobs presence
+        %% Bob should receive (in that order): Alices presence, his presence and the topic
+
+        Preds = [fun(Stanza) -> escalus_pred:is_presence(Stanza) andalso
+            escalus_pred:is_stanza_from(<<RoomName/binary, "@muc.localhost/bob">>, Stanza)
+        end,
+        fun(Stanza) -> escalus_pred:is_presence(Stanza) andalso
+            escalus_pred:is_stanza_from(<<RoomName/binary, "@muc.localhost/alice-the-owner">>, Stanza)
+        end],
+        escalus:assert_many(Preds, escalus:wait_for_stanzas(Bob, 2)),
+        escalus:wait_for_stanza(Bob), %topic
+        escalus_assert:has_no_stanzas(Bob),
+        escalus_assert:has_no_stanzas(Alice)
+    end).
+
+deny_creation_of_http_password_protected_room(Config) ->
+    escalus:fresh_story(Config, [{alice, 1}], fun(Alice) ->
+        %% Fail to create the room
+        RoomName = fresh_room_name(),
+        Presence = stanza_muc_enter_room(RoomName, <<"alice-the-owner">>),
+        escalus:send(Alice, Presence),
+        escalus_assert:is_error(escalus:wait_for_stanza(Alice), <<"auth">>, <<"not-authorized">>),
+        escalus_assert:has_no_stanzas(Alice)
+    end).
+
+deny_creation_of_http_password_protected_room_wrong_password(Config) ->
+    escalus:fresh_story(Config, [{alice, 1}], fun(Alice) ->
+        %% Fail to create the room
+        RoomName = fresh_room_name(),
+        Presence = stanza_muc_enter_password_protected_room(RoomName, <<"alice-the-owner">>, <<"badpass">>),
+        escalus:send(Alice, Presence),
+        escalus_assert:is_error(escalus:wait_for_stanza(Alice), <<"auth">>, <<"not-authorized">>),
+        escalus_assert:has_no_stanzas(Alice)
+    end).
+
+
+deny_creation_of_http_password_protected_room_service_unavailable(Config) ->
+    escalus:fresh_story(Config, [{alice, 1}], fun(Alice) ->
+        %% Fail to create the room
+        RoomName = fresh_room_name(),
+        Presence = stanza_muc_enter_password_protected_room(RoomName, <<"alice-the-owner">>, ?PASSWORD),
+        escalus:send(Alice, Presence),
+        escalus_assert:is_error(escalus:wait_for_stanza(Alice), <<"cancel">>, <<"service-unavailable">>),
+        escalus_assert:has_no_stanzas(Alice)
+    end).
+
 %% @doc Based on examples from http://xmpp.org/extensions/xep-0059.html
 %% @end
 %% <iq type='get' from='stpeter@jabber.org/roundabout'
@@ -3614,7 +3792,7 @@ pagination_after10(Config) ->
 %%   </query>
 %% </iq>
 stanza_room_list_request(_QueryId, RSM) ->
-    escalus_stanza:iq(?MUC_HOST, <<"get">>, [#xmlel{
+    escalus_stanza:iq(muc_host(), <<"get">>, [#xmlel{
         name = <<"query">>,
         attrs = [{<<"xmlns">>,
                   <<"http://jabber.org/protocol/disco#items">>}],
@@ -3838,13 +4016,6 @@ print_next_message(User) ->
 print(Element) ->
     error_logger:info_msg("~n~p~n", [Element]).
 
-generate_rpc_jid({_,User}) ->
-    {username, Username} = lists:keyfind(username, 1, User),
-    {server, Server} = lists:keyfind(server, 1, User),
-    LUsername = escalus_utils:jid_to_lower(Username),
-    LServer = escalus_utils:jid_to_lower(Server),
-    {jid, Username, Server, <<"rpc">>, LUsername, LServer, <<"rpc">>}.
-
 %Groupchat 1.0 protocol
 stanza_groupchat_enter_room(Room, Nick) ->
     stanza_to_room(escalus_stanza:presence(<<"available">>), Room, Nick).
@@ -3855,12 +4026,6 @@ stanza_groupchat_enter_room_no_nick(Room) ->
 
 
 %Basic MUC protocol
-stanza_muc_enter_room(Room, Nick) ->
-    stanza_to_room(
-        escalus_stanza:presence(  <<"available">>,
-                                [#xmlel{ name = <<"x">>, attrs=[{<<"xmlns">>, <<"http://jabber.org/protocol/muc">>}]}]),
-        Room, Nick).
-
 stanza_muc_enter_password_protected_room(Room, Nick, Password) ->
     stanza_to_room(
         escalus_stanza:presence(  <<"available">>,
@@ -3871,15 +4036,6 @@ stanza_muc_enter_password_protected_room(Room, Nick, Password) ->
 stanza_change_nick(Room, NewNick) ->
     stanza_to_room(escalus_stanza:presence(<<"available">>), Room, NewNick).
 
-start_room(Config, User, Room, Nick, Opts) ->
-    From = generate_rpc_jid(User),
-    create_instant_room(<<"localhost">>, Room, From, Nick, Opts),
-    [{nick, Nick}, {room, Room} | Config].
-
-create_instant_room(Host, Room, From, Nick, Opts) ->
-    escalus_ejabberd:rpc(mod_muc, create_instant_room,
-        [Host, Room, From, Nick, Opts]).
-
 start_rsm_rooms(Config, User, Nick) ->
     From = generate_rpc_jid(User),
     [create_instant_room(
@@ -3888,7 +4044,7 @@ start_rsm_rooms(Config, User, Nick) ->
     Config.
 
 destroy_rsm_rooms(Config) ->
-    [destroy_room(?MUC_HOST, generate_room_name(N))
+    [destroy_room(muc_host(), generate_room_name(N))
      || N <- lists:seq(1, 15)],
     Config.
 
@@ -3900,22 +4056,6 @@ generate_room_addr(N) ->
 
 generate_room_addrs(FromN, ToN) ->
     [generate_room_addr(N) || N <- lists:seq(FromN, ToN)].
-
-destroy_room(Config) ->
-    destroy_room(?MUC_HOST, ?config(room, Config)).
-
-destroy_room(Host, Room) when is_binary(Host), is_binary(Room) ->
-    case escalus_ejabberd:rpc(
-            ets, lookup, [muc_online_room, {Room, Host}]) of
-        [{_,_,Pid}|_] -> gen_fsm:send_all_state_event(Pid, destroy);
-        _ -> ok
-    end.
-
-room_address(Room) ->
-    <<Room/binary, "@", ?MUC_HOST/binary>>.
-
-room_address(Room, Nick) ->
-    <<Room/binary, "@", ?MUC_HOST/binary, "/", Nick/binary>>.
 
 %%--------------------------------------------------------------------
 %% Helpers (stanzas)
@@ -4120,12 +4260,6 @@ stanza_destroy_room(Room) ->
 stanza_enter_room(Room, Nick) ->
     stanza_to_room(#xmlel{name = <<"presence">>}, Room, Nick).
 
-stanza_to_room(Stanza, Room, Nick) ->
-    escalus_stanza:to(Stanza, room_address(Room, Nick)).
-
-stanza_to_room(Stanza, Room) ->
-    escalus_stanza:to(Stanza, room_address(Room)).
-
 stanza_get_rooms() ->
     %% <iq from='hag66@shakespeare.lit/pda'
     %%   id='zb8q41f4'
@@ -4134,7 +4268,7 @@ stanza_get_rooms() ->
     %% <query xmlns='http://jabber.org/protocol/disco#items'/>
     %% </iq>
     escalus_stanza:setattr(escalus_stanza:iq_get(?NS_DISCO_ITEMS, []), <<"to">>,
-        ?MUC_HOST).
+        muc_host()).
 
 stanza_get_features() ->
     %% <iq from='hag66@shakespeare.lit/pda'
@@ -4144,7 +4278,7 @@ stanza_get_features() ->
     %%  <query xmlns='http://jabber.org/protocol/disco#info'/>
     %% </iq>
     escalus_stanza:setattr(escalus_stanza:iq_get(?NS_DISCO_INFO, []), <<"to">>,
-        ?MUC_HOST).
+        muc_host()).
 
 stanza_get_services(Config) ->
     %% <iq from='hag66@shakespeare.lit/pda'
@@ -4389,7 +4523,7 @@ has_muc(#xmlel{children = [ #xmlel{children = Services} ]}) ->
     %% S = escalus:wait_for_stanza(Alice),
     %% error_logger:info_msg("~p~n", [S]),
     IsMUC = fun(Item) ->
-        exml_query:attr(Item, <<"jid">>) == ?MUC_HOST
+        exml_query:attr(Item, <<"jid">>) == muc_host()
     end,
     lists:any(IsMUC, Services).
 

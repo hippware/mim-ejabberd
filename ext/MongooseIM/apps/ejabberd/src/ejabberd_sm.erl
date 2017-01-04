@@ -118,7 +118,7 @@
 %%--------------------------------------------------------------------
 -spec start_link() -> 'ignore' | {'error',_} | {'ok',pid()}.
 start_link() ->
-    mongoose_metrics:ensure_metric(?UNIQUE_COUNT_CACHE, gauge),
+    mongoose_metrics:ensure_metric(global, ?UNIQUE_COUNT_CACHE, gauge),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 
@@ -338,7 +338,7 @@ get_session_pid(User, Server, Resource) ->
 get_unique_sessions_number() ->
     try
         C = ?SM_BACKEND:unique_count(),
-        mongoose_metrics:update(?UNIQUE_COUNT_CACHE, C),
+        mongoose_metrics:update(global, ?UNIQUE_COUNT_CACHE, C),
         C
     catch
         _:_ ->
@@ -388,7 +388,8 @@ unregister_iq_handler(Host, XMLNS) ->
 %%====================================================================
 
 node_cleanup(Node) ->
-    gen_server:call(?MODULE, {node_cleanup, Node}).
+    Timeout = timer:minutes(1),
+    gen_server:call(?MODULE, {node_cleanup, Node}, Timeout).
 
 %%====================================================================
 %% gen_server callbacks
@@ -645,7 +646,15 @@ do_route_no_resource(_, _, _, _, _) ->
       To :: ejabberd:jid(),
       Packet :: jlib:xmlel().
 do_route_offline(<<"message">>, _, From, To, Packet)  ->
-        route_message(From, To, Packet);
+    Drop = ejabberd_hooks:run_fold(sm_filter_offline_message, To#jid.lserver,
+                   false, [From, To, Packet]),
+    case Drop of
+        false ->
+            route_message(From, To, Packet);
+        true ->
+            ?DEBUG("issue=\"message droped\", to=~1000p", [To]),
+            ok
+    end;
 do_route_offline(<<"iq">>, <<"error">>, _From, _To, _Packet) ->
         ok;
 do_route_offline(<<"iq">>, <<"result">>, _From, _To, _Packet) ->
@@ -741,6 +750,8 @@ route_message(From, To, Packet) ->
                                                        LServer,
                                                        [From, To, Packet]);
                                 false ->
+                                    ejabberd_hooks:run_fold(failed_to_store_message,
+                                                            LServer, Packet, [From]),
                                     ok
                             end;
                         _ ->
@@ -955,7 +966,7 @@ sm_backend(Backend) ->
 
 -spec get_cached_unique_count() -> non_neg_integer().
 get_cached_unique_count() ->
-    case mongoose_metrics:get_metric_value(?UNIQUE_COUNT_CACHE) of
+    case mongoose_metrics:get_metric_value(global, ?UNIQUE_COUNT_CACHE) of
         {ok, DataPoints} ->
             proplists:get_value(value, DataPoints);
         _ ->

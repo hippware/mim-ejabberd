@@ -20,6 +20,7 @@
 {suites, "tests", conf_reload_SUITE}.
 {suites, "tests", connect_SUITE}.
 {suites, "tests", component_SUITE}.
+{suites, "tests", disco_and_caps_SUITE}.
 {suites, "tests", ejabberdctl_SUITE}.
 {suites, "tests", last_SUITE}.
 {suites, "tests", login_SUITE}.
@@ -37,6 +38,8 @@
 {suites, "tests", muc_SUITE}.
 {suites, "tests", muc_light_SUITE}.
 {suites, "tests", muc_light_legacy_SUITE}.
+{suites, "tests", muc_http_api_SUITE}.
+{suites, "tests", muc_light_http_api_SUITE}.
 {suites, "tests", oauth_SUITE}.
 {suites, "tests", offline_SUITE}.
 {suites, "tests", pep_SUITE}.
@@ -44,6 +47,8 @@
 {suites, "tests", privacy_SUITE}.
 {suites, "tests", private_SUITE}.
 {suites, "tests", pubsub_SUITE}.
+{suites, "tests", rest_SUITE}.
+{suites, "tests", rest_client_SUITE}.
 {suites, "tests", s2s_SUITE}.
 {suites, "tests", sasl_SUITE}.
 {suites, "tests", shared_roster_SUITE}.
@@ -63,7 +68,7 @@
 %% * log suite start/end events in the MongooseIM console
 %% * ensure preset value is passed to ct Config
 %% * check server's purity after SUITE
-{ct_hooks, [ct_tty_hook, ct_mongoose_hook]}.
+{ct_hooks, [ct_tty_hook, ct_mongoose_hook, ct_progress_hook]}.
 
 %% To enable printing group and case enters on server side
 %%{ct_hooks, [{ct_mongoose_hook, [print_group, print_case]}]}.
