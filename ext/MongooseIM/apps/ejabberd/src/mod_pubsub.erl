@@ -91,6 +91,7 @@
 -export([start_link/2, start/2, stop/1, init/1,
          handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
+-export([default_host/0]).
 
 -export([send_loop/1]).
 
@@ -101,7 +102,7 @@
 %% API
 %%====================================================================
 %%--------------------------------------------------------------------
-%% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
+%% Function: start_link() -> {ok, Pid} | ignore | {error, Error}
 %% Description: Starts the server
 %%--------------------------------------------------------------------
 
@@ -129,7 +130,7 @@
 
 %% -type payload() defined here because the -type xmlel() is not accessible
 %% from pubsub.hrl
--type(payload() :: [] | [xmlel(),...]).
+-type(payload() :: [] | [xmlel(), ...]).
 
 -export_type([
               pubsubNode/0,
@@ -145,7 +146,7 @@
            id      :: Nidx::mod_pubsub:nodeIdx(),
            parents :: [Node::mod_pubsub:nodeId()],
            type    :: Type::binary(),
-           owners  :: [Owner::ljid(),...],
+           owners  :: [Owner::ljid(), ...],
            options :: Opts::mod_pubsub:nodeOptions()
           }
         ).
@@ -212,7 +213,7 @@
            max_subscriptions_node  :: non_neg_integer()|undefined,
            default_node_config     :: [{atom(), binary()|boolean()|integer()|atom()}],
            nodetree                :: binary(),
-           plugins                 :: [binary(),...],
+           plugins                 :: [binary(), ...],
            db_type                 :: atom()
           }
 
@@ -235,6 +236,10 @@ stop(Host) ->
     ok = supervisor:terminate_child(ejabberd_sup, Proc),
     ok = supervisor:delete_child(ejabberd_sup, Proc).
 
+-spec default_host() -> binary().
+default_host() ->
+    <<"pubsub.@HOST@">>.
+
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
@@ -247,12 +252,12 @@ stop(Host) ->
 %% Description: Initiates the server
 %%--------------------------------------------------------------------
 -spec init(
-        [binary() | [{_,_}],...])
-        -> {'ok',state()}.
+        [binary() | [{_, _}], ...])
+        -> {'ok', state()}.
 
 init([ServerHost, Opts]) ->
     ?DEBUG("pubsub init ~p ~p", [ServerHost, Opts]),
-    Host = gen_mod:get_opt_host(ServerHost, Opts, <<"pubsub.@HOST@">>),
+    Host = gen_mod:get_opt_subhost(ServerHost, Opts, default_host()),
     Access = gen_mod:get_opt(access_createnode, Opts,
                              fun(A) when is_atom(A) -> A end, all),
     PepOffline = gen_mod:get_opt(ignore_pep_from_offline, Opts,
@@ -267,6 +272,8 @@ init([ServerHost, Opts]) ->
                                   fun(A) when is_integer(A) andalso A >= 0 -> A end, undefined),
     DefaultNodeCfg = gen_mod:get_opt(default_node_config, Opts,
                                      fun(A) when is_list(A) -> filter_node_options(A) end, []),
+    ItemPublisher = gen_mod:get_opt(item_publisher, Opts,
+                                    fun(A) when is_boolean(A) -> A end, false),
     pubsub_index:init(Host, ServerHost, Opts),
     ets:new(gen_mod:get_module_proc(ServerHost, config), [set, named_table]),
     {Plugins, NodeTree, PepMapping} = init_plugins(Host, ServerHost, Opts),
@@ -284,6 +291,7 @@ init([ServerHost, Opts]) ->
     ets:insert(gen_mod:get_module_proc(ServerHost, config), {ignore_pep_from_offline, PepOffline}),
     ets:insert(gen_mod:get_module_proc(ServerHost, config), {host, Host}),
     ets:insert(gen_mod:get_module_proc(ServerHost, config), {access, Access}),
+    ets:insert(gen_mod:get_module_proc(ServerHost, config), {item_publisher, ItemPublisher}),
     ejabberd_hooks:add(sm_remove_connection_hook, ServerHost,
                        ?MODULE, on_user_offline, 75),
     ejabberd_hooks:add(disco_local_identity, ServerHost,
@@ -512,7 +520,7 @@ disco_local_identity(Acc, _From, _To, _Node, _Lang) ->
           To     :: jid(),
           Node   :: <<>> | mod_pubsub:nodeId(),
           Lang   :: binary())
-        -> [binary(),...].
+        -> [binary(), ...].
 disco_local_features(Acc, _From, To, <<>>, _Lang) ->
     Host = To#jid.lserver,
     Feats = case Acc of
@@ -902,7 +910,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 -spec do_route(
         ServerHost :: binary(),
           Access     :: atom(),
-          Plugins    :: [binary(),...],
+          Plugins    :: [binary(), ...],
           Host       :: mod_pubsub:hostPubsub(),
           From       :: jid(),
           To         :: jid(),
@@ -1210,7 +1218,7 @@ iq_pubsub(Host, ServerHost, From, IQType, SubEl, Lang) ->
           SubEl      :: xmlel(),
           Lang       :: binary(),
           Access     :: atom(),
-          Plugins    :: [binary(),...])
+          Plugins    :: [binary(), ...])
         -> {result, [xmlel()]}
 %%%
                | {error, xmlel()}.
@@ -1743,7 +1751,7 @@ update_auth(Host, Node, Type, Nidx, Subscriber, Allow, Subs) ->
           Type          :: binary(),
           Access        :: atom(),
           Configuration :: [xmlel()])
-        -> {result, [xmlel(),...]}
+        -> {result, [xmlel(), ...]}
 %%%
                | {error, xmlel()}.
 create_node(Host, ServerHost, Node, Owner, Type) ->
@@ -1862,7 +1870,7 @@ create_node(Host, ServerHost, Node, Owner, GivenType, Access, Configuration) ->
         Host  :: mod_pubsub:host(),
           Node  :: mod_pubsub:nodeId(),
           Owner :: jid())
-        -> {result, [xmlel(),...]}
+        -> {result, [xmlel(), ...]}
 %%%
                | {error, xmlel()}.
 delete_node(_Host, <<>>, _Owner) ->
@@ -1946,7 +1954,7 @@ delete_node(Host, Node, Owner) ->
           From          :: jid(),
           JID           :: binary(),
           Configuration :: [xmlel()])
-        -> {result, [xmlel(),...]}
+        -> {result, [xmlel(), ...]}
 %%%
                | {error, xmlel()}.
 subscribe_node(Host, Node, From, JID, Configuration) ->
@@ -2093,7 +2101,7 @@ unsubscribe_node(Host, Node, From, Subscriber, SubId) ->
           Publisher  :: jid(),
           ItemId     :: <<>> | mod_pubsub:itemId(),
           Payload    :: mod_pubsub:payload())
-        -> {result, [xmlel(),...]}
+        -> {result, [xmlel(), ...]}
 %%%
                | {error, xmlel()}.
 publish_item(Host, ServerHost, Node, Publisher, ItemId, Payload) ->
@@ -2101,6 +2109,7 @@ publish_item(Host, ServerHost, Node, Publisher, ItemId, Payload) ->
 publish_item(Host, ServerHost, Node, Publisher, <<>>, Payload, Access) ->
     publish_item(Host, ServerHost, Node, Publisher, uniqid(), Payload, Access);
 publish_item(Host, ServerHost, Node, Publisher, ItemId, Payload, Access) ->
+    ItemPublisher = config(serverhost(Host), item_publisher, false),
     Action = fun (#pubsub_node{options = Options, type = Type, id = Nidx}) ->
                      Features = plugin_features(Host, Type),
                      PublishFeature = lists:member(<<"publish">>, Features),
@@ -2132,7 +2141,7 @@ publish_item(Host, ServerHost, Node, Publisher, ItemId, Payload, Access) ->
                               extended_error(?ERR_BAD_REQUEST, <<"item-required">>)};
                         true ->
                              node_call(Host, Type, publish_item,
-                                       [Nidx, Publisher, PublishModel, MaxItems, ItemId, Payload])
+                                       [Nidx, Publisher, PublishModel, MaxItems, ItemId, ItemPublisher, Payload])
                      end
              end,
     Reply = [#xmlel{name = <<"pubsub">>,
@@ -2156,7 +2165,7 @@ publish_item(Host, ServerHost, Node, Publisher, ItemId, Payload, Access) ->
             case get_option(Options, deliver_notifications) of
                 true ->
                     broadcast_publish_item(Host, Node, Nidx, Type, Options, ItemId,
-                                           Publisher, BrPayload, Removed);
+                                           Publisher, BrPayload, Removed, ItemPublisher);
                 false ->
                     ok
             end,
@@ -2334,7 +2343,7 @@ purge_node(Host, Node, Owner) ->
           SMaxItems :: binary(),
           ItemIds   :: [mod_pubsub:itemId()],
           Rsm       :: none | rsm_in())
-        -> {result, [xmlel(),...]}
+        -> {result, [xmlel(), ...]}
 %%%
                | {error, xmlel()}.
 get_items(Host, Node, From, SubId, SMaxItems, ItemIds, RSM) ->
@@ -2492,7 +2501,7 @@ dispatch_items(From, To, _Node, Options, Stanza) ->
           Node    :: mod_pubsub:nodeId(),
           JID     :: jid(),
           Plugins :: [binary()])
-        -> {result, [xmlel(),...]}
+        -> {result, [xmlel(), ...]}
 %%%
                | {error, xmlel()}.
 get_affiliations(Host, Node, JID, Plugins) when is_list(Plugins) ->
@@ -2542,7 +2551,7 @@ get_affiliations(Host, Node, JID, Plugins) when is_list(Plugins) ->
         Host :: mod_pubsub:host(),
           Node :: mod_pubsub:nodeId(),
           JID  :: jid())
-        -> {result, [xmlel(),...]}
+        -> {result, [xmlel(), ...]}
 %%%
                | {error, xmlel()}.
 get_affiliations(Host, Node, JID) ->
@@ -2975,7 +2984,7 @@ set_subscriptions(Host, Node, From, EntitiesEls) ->
 -spec get_presence_and_roster_permissions(
         Host          :: mod_pubsub:host(),
           From          :: ljid(),
-          Owners        :: [ljid(),...],
+          Owners        :: [ljid(), ...],
           AccessModel   :: mod_pubsub:accessModel(),
           AllowedGroups :: [binary()])
         -> {PresenceSubscription::boolean(), RosterGroup::boolean()}.
@@ -3190,16 +3199,20 @@ event_stanza(Event, EvAttr) ->
 
 %%%%%% broadcast functions
 
-broadcast_publish_item(Host, Node, Nidx, Type, NodeOptions, ItemId, From, Payload, Removed) ->
+broadcast_publish_item(Host, Node, Nidx, Type, NodeOptions, ItemId, From, Payload, Removed, ItemPublisher) ->
     case get_collection_subscriptions(Host, Node) of
         SubsByDepth when is_list(SubsByDepth) ->
             Content = case get_option(NodeOptions, deliver_payloads) of
                           true -> Payload;
                           false -> []
                       end,
+            ItemAttr = case ItemPublisher of
+                           true  -> itemAttr(ItemId, From);
+                           false -> itemAttr(ItemId)
+                       end,
             Stanza = event_stanza(
                        [#xmlel{name = <<"items">>, attrs = nodeAttr(Node),
-                               children = [#xmlel{name = <<"item">>, attrs = itemAttr(ItemId),
+                               children = [#xmlel{name = <<"item">>, attrs = ItemAttr,
                                                   children = Content}]}]),
             broadcast_stanza(Host, From, Node, Nidx, Type,
                              NodeOptions, SubsByDepth, items, Stanza, true),
@@ -3877,8 +3890,8 @@ serverhost({_U, Server, _R})->
     Server;
 serverhost(Host) ->
     case binary:match(Host, <<"pubsub.">>) of
-        {0,7} ->
-            [_,ServerHost] = binary:split(Host, <<".">>),
+        {0, 7} ->
+            [_, ServerHost] = binary:split(Host, <<".">>),
             ServerHost;
         _ ->
             Host
@@ -3892,10 +3905,10 @@ tree(Host) ->
 
 tree(_Host, <<"virtual">>) ->
     nodetree_virtual;   % special case, virtual does not use any backend
-tree(Host, Name) ->
+tree(_Host, Name) ->
     binary_to_atom(<<"nodetree_", Name/binary>>, utf8).
 
-plugin(Host, Name) ->
+plugin(_Host, Name) ->
     binary_to_atom(<<"node_", Name/binary>>, utf8).
 
 plugins(Host) ->
@@ -3905,7 +3918,7 @@ plugins(Host) ->
         Plugins -> Plugins
     end.
 
-subscription_plugin(Host) ->
+subscription_plugin(_Host) ->
     pubsub_subscription.
 
 config(ServerHost, Key) ->
@@ -4102,12 +4115,23 @@ uniqid() ->
 
 nodeAttr(Node) -> [{<<"node">>, Node}].
 
-itemAttr([]) -> [];
+itemAttr([])     -> [];
 itemAttr(ItemId) -> [{<<"id">>, ItemId}].
 
+itemAttr(ItemId, undefined) -> itemAttr(ItemId);
+itemAttr([], Publisher)     -> [{<<"publisher">>,
+                                 jid:to_binary(jid:to_lower(Publisher))}];
+itemAttr(ItemId, Publisher) -> [{<<"id">>, ItemId},
+                                {<<"publisher">>,
+                                 jid:to_binary(jid:to_lower(Publisher))}].
+
 itemsEls(Items) ->
-    [#xmlel{name = <<"item">>, attrs = itemAttr(ItemId), children = Payload}
-     || #pubsub_item{itemid = {ItemId, _}, payload = Payload} <- Items].
+    [#xmlel{name     = <<"item">>,
+            attrs    = itemAttr(ItemId, Publisher),
+            children = Payload}
+     || #pubsub_item{itemid    = {ItemId, _},
+                     publisher = Publisher ,
+                     payload   = Payload    } <- Items].
 
 -spec add_message_type(
         Message :: xmlel(),
@@ -4191,7 +4215,7 @@ purge_offline(LJID) ->
             lists:foreach(
               fun ({Node, Affiliation}) ->
                       Options = Node#pubsub_node.options,
-                      Publisher = lists:member(Affiliation, [owner,publisher,publish_only]),
+                      Publisher = lists:member(Affiliation, [owner, publisher, publish_only]),
                       Open = (get_option(Options, publish_model) == open),
                       Purge = (get_option(Options, purge_offline)
                                andalso get_option(Options, persist_items)),

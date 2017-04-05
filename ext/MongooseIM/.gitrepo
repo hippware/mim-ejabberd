@@ -4,8 +4,8 @@
 ; git-subrepo command. See https://github.com/git-commands/git-subrepo#readme
 ;
 [subrepo]
-	remote = git@github.com:hippware/MongooseIM.git
-	branch = hippware-working
-	commit = 7b59e9076e8af63a3b778e838ec861d0a9602658
-	parent = d0ce0e6b02d5d128c9566acfb81160f4fe798d59
+	remote = https://github.com/hippware/MongooseIM.git
+	branch = working-2.0.1
+	commit = 1ba8b500a5410e9bae992bbcd66f56d4abe7837d
+	parent = ebc928f7093e4e63bf039693e6d98edd338432b5
 	cmdver = 0.3.1

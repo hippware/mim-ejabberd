@@ -116,7 +116,7 @@ get_global_metric_names() ->
     get_host_metric_names(global).
 
 get_aggregated_values(Metric) ->
-    exometer:aggregate([{{['_',Metric],'_','_'},[],[true]}], [one, count, value]).
+    exometer:aggregate([{{['_', Metric], '_', '_'}, [], [true]}], [one, count, value]).
 
 -spec increment_generic_hook_metric(ejabberd:lserver(), atom()) -> ok | {error, any()}.
 increment_generic_hook_metric(Host, Hook) ->
@@ -194,9 +194,9 @@ get_odbc_stats(ODBCWorkers) ->
     [{workers, length(ODBCConnections)} | merge_stats(PortStats)].
 
 get_port_from_odbc_connection({ok, DbType, Pid}) when DbType =:= mysql; DbType =:= pgsql ->
-    %% Pid of mysql_conn process
+    %% Pid of p1_mysql_conn process
     {links, [MySQLRecv]} = erlang:process_info(Pid, links),
-    %% Port is hold by mysql_recv process which is linked to the mysql_conn
+    %% Port is hold by p1_mysql_recv process which is linked to the p1_mysql_conn
     {links, Links} = erlang:process_info(MySQLRecv, links),
     [Port || Port <- Links, is_port(Port)];
 get_port_from_odbc_connection({ok, odbc, Pid}) ->
@@ -315,4 +315,3 @@ subscribe_to_all(Reporter, Interval) ->
       fun(Prefix) ->
               start_metrics_subscriptions(Reporter, [Prefix], Interval)
       end, [global | HostPrefixes]).
-
