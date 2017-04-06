@@ -85,33 +85,8 @@ parse_opts(Type, Opts, Deps) ->
     parse_backend_opts(Backend, Type, Opts, WithCoreDeps).
 
 
--spec parse_backend_opts(odbc | cassandra | riak, Type :: pm | muc,
+-spec parse_backend_opts(odbc, Type :: pm | muc,
                          Opts :: proplists:proplist(), deps()) -> deps().
-parse_backend_opts(cassandra, Type, Opts, Deps0) ->
-    ModArch =
-        case Type of
-            pm -> mod_mam_cassandra_arch;
-            muc -> mod_mam_muc_cassandra_arch
-        end,
-
-    Deps = add_dep(ModArch, Deps0),
-
-    case proplists:get_value(user_prefs_store, Opts, false) of
-        cassandra -> add_dep(mod_mam_cassandra_prefs, [Type], Deps);
-        mnesia -> add_dep(mod_mam_mnesia_prefs, [Type], Deps);
-        mnesia_dirty -> add_dep(mod_mam_mnesia_dirty_prefs, [Type], Deps);
-        _ -> Deps
-    end;
-
-parse_backend_opts(riak, Type, Opts, Deps0) ->
-    Deps = add_dep(mod_mam_riak_timed_arch_yz, [Type], Deps0),
-
-    case proplists:get_value(user_prefs_store, Opts, false) of
-        mnesia -> add_dep(mod_mam_mnesia_prefs, [Type], Deps);
-        mnesia_dirty -> add_dep(mod_mam_mnesia_dirty_prefs, [Type], Deps);
-        _ -> Deps
-    end;
-
 parse_backend_opts(odbc, Type, Opts0, Deps0) ->
     Opts = add_default_odbc_opts(Opts0),
 
