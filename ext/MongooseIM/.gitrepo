@@ -6,6 +6,6 @@
 [subrepo]
 	remote = https://github.com/hippware/MongooseIM.git
 	branch = working-2.0.1
-	commit = 32ff852bafdd92868ff8d7d3d4682faaaa66b2d0
-	parent = 76df4fdbbba01e51b2f63d8e526fb700435aff7f
+	commit = 78decd48dad8c232ee82b55c8b316b7af7456191
+	parent = 9877162887d1d11e6d352c60e8677b72145c273d
 	cmdver = 0.3.1
